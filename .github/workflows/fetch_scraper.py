@@ -1,146 +1,87 @@
+import os
+import sys
 import requests
 from bs4 import BeautifulSoup
-import time
-import config
-import telegram_logger
 
-# 🕵️‍♂️ 로봇이 아닌 '진짜 사람 브라우저'처럼 보이기 위한 변장 마스크입니다.
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
-}
+# =====================================================================
+# [경로 보정] 혹시 모를 모듈 호출 에러 방지용 시스템
+# =====================================================================
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
-def fetch_jobkorea():
+
+def scrape_jobs():
     """
-    1. 잡코리아에서 검색어와 기업 조건에 맞춰 공고를 긁어오는 함수
+    채용 사이트의 웹 페이지를 직접 크롤링/스크래핑하여 신규 채용 정보를 수집합니다.
     """
-    jobs = []
+    print("🌐 [웹 스크래핑 엔진] 가동 시작...")
+    scraped_results = []
     
-    # config.py에서 선택한 기업 형태에 맞춰 잡코리아 전용 검색 필터 주소를 만듭니다.
-    company_filter = ""
-    if config.CHOSEN_COMPANY_TYPE == "대기업":
-        company_filter = "&st=1"
-    elif config.CHOSEN_COMPANY_TYPE == "중견기업":
-        company_filter = "&st=2"
-    elif config.CHOSEN_COMPANY_TYPE == "외국계기업":
-        company_filter = "&st=4"
-
-    for keyword in config.KEYWORDS:
-        url = f"https://www.jobkorea.co.kr/Search/?stext={keyword}{company_filter}&tabType=recruit"
+    # AI 비서의 맞춤형 탐색 키워드
+    keywords = ["해외영업", "화장품", "마케팅"]
+    
+    # -----------------------------------------------------------------
+    # 예시: 사람인 검색 페이지 스크래핑 구조
+    # (실제 사람인 서버 정책 및 구조 변경에 대비하여 안전하게 예외처리 적용)
+    # -----------------------------------------------------------------
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    for keyword in keywords:
+        print(f"🔎 웹 스크래핑으로 '{keyword}' 관련 공고 탐색 중...")
+        
+        # 사람인 검색 결과 URL (예시 경로)
+        search_url = f"https://www.saramin.co.kr/zf_user/search/recruit?searchword={keyword}"
         
         try:
-            response = requests.get(url, headers=HEADERS, timeout=10)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                post_items = soup.select(".list-post .post")
+            response = requests.get(search_url, headers=headers, timeout=10)
+            if response.status_code != 200:
+                print(f"⚠️ {keyword} 스크래핑 건너넙니다 (상태 코드: {response.status_code})")
+                continue
                 
-                for item in post_items:
-                    comp_tag = item.select_one(".name")
-                    title_tag = item.select_one(".title")
+            soup = BeautifulSoup(response.text, "html.parser")
+            
+            # 사람인 공고 목록 영역 선택 (사이트 구조에 맞는 셀렉터 예시)
+            job_listings = soup.select(".item_recruit")
+            
+            for item in job_listings[:5]:  # 과도한 트래픽 방지를 위해 키워드당 최신 5개씩만 수집
+                try:
+                    # 제목, 회사명, 링크 추출
+                    title_element = item.select_one(".job_tit a")
+                    corp_element = item.select_one(".corp_name a")
                     
-                    if comp_tag and title_tag:
-                        comp_name = comp_tag.get_text(strip=True)
-                        title_text = title_tag.get_text(strip=True)
+                    if title_element and corp_element:
+                        title = title_element.get_text(strip=True)
+                        corp = corp_element.get_text(strip=True)
+                        link = "https://www.saramin.co.kr" + title_element["href"]
                         
-                        link = title_tag.get("href", "")
-                        if link and not link.startswith("http"):
-                            link = f"https://www.jobkorea.co.kr{link}"
-                            
-                        option_tag = item.select_one(".option")
-                        option_text = option_tag.get_text(" ", strip=True) if option_tag else "정보 없음"
+                        # 조건 정보 (경력, 학력, 근무지 등)
+                        conditions = [span.get_text(strip=True) for span in item.select(".job_condition span")]
+                        condition_txt = ", ".join(conditions) if conditions else "정보 없음"
                         
-                        jobs.append({
-                            "site": "잡코리아",
-                            "company": comp_name,
-                            "title": title_text,
+                        scraped_results.append({
+                            "site": "사람인(웹)",
+                            "company": corp,
+                            "title": title,
                             "url": link,
-                            "location": option_text.split(" ")[0] if option_text else "지역 미정",
-                            "experience": "조건 만족 (필터링 수집)"
+                            "info": f"조건: {condition_txt} / 키워드: {keyword}"
                         })
-            else:
-                print(f"❌ [잡코리아] 페이지 접근 실패 (코드: {response.status_code})")
-                
-            time.sleep(1)
-            
-        except Exception as e:
-            telegram_logger.log_error("fetch_scraper.py (잡코리아 크롤링 중)", e)
-            
-    print(f"✅ [잡코리아] 총 {len(jobs)}개의 공고를 크롤링했습니다.")
-    return jobs
-
-
-def fetch_peoplenjob():
-    """
-    2. ★새로 추가됨★ 피플앤잡에서 검색어에 맞춰 공고를 긁어오는 함수
-    (피플앤잡은 사이트 특성상 99%가 외국계/대기업 공고이므로 키워드로만 타겟팅합니다)
-    """
-    jobs = []
-    
-    for keyword in config.KEYWORDS:
-        # 피플앤잡 채용공고 검색 주소
-        url = f"https://www.peoplenjob.com/jobs?q={keyword}"
-        
-        try:
-            response = requests.get(url, headers=HEADERS, timeout=10)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, "html.parser")
-                
-                # 채용 공고가 들어있는 테이블의 행(row)들을 선택합니다.
-                job_rows = soup.select("table.job-list-table tbody tr")
-                
-                for row in job_rows:
-                    # 광고나 빈 행은 건너뜁니다.
-                    if "premium-job" in row.get("class", []) or not row.select_one(".job-title"):
-                        continue
-                        
-                    title_tag = row.select_one(".job-title a")
-                    comp_tag = row.select_one(".company-name")
-                    loc_tag = row.select_one(".location")
+                except Exception as item_e:
+                    print(f"⚠️ 개별 공고 파싱 중 에러 발생 (무시하고 진행): {item_e}")
+                    continue
                     
-                    if title_tag and comp_tag:
-                        title_text = title_tag.get_text(strip=True)
-                        comp_name = comp_tag.get_text(strip=True)
-                        location = loc_tag.get_text(strip=True) if loc_tag else "지역 미정"
-                        
-                        # 상세 링크 주소 조립
-                        link = title_tag.get("href", "")
-                        if link and not link.startswith("http"):
-                            link = f"https://www.peoplenjob.com{link}"
-                            
-                        jobs.append({
-                            "site": "피플앤잡",
-                            "company": comp_name,
-                            "title": title_text,
-                            "url": link,
-                            "location": location,
-                            "experience": "외국계/대기업 중심 공고"
-                        })
-            else:
-                print(f"❌ [피플앤잡] 페이지 접근 실패 (코드: {response.status_code})")
-                
-            time.sleep(1)
-            
         except Exception as e:
-            telegram_logger.log_error("fetch_scraper.py (피플앤잡 크롤링 중)", e)
-            
-    print(f"✅ [피플앤잡] 총 {len(jobs)}개의 공고를 크롤링했습니다.")
-    return jobs
+            print(f"❌ '{keyword}' 스크래핑 중 오류 발생: {e}")
+            continue
 
-
-def run_scraper_collection():
-    """
-    크롤링 팀(잡코리아, 피플앤잡)의 데이터를 모두 모아서 리스트로 합쳐주는 총괄 함수
-    """
-    print("🚀 웹 크롤러 기반 채용공고 수집을 시작합니다...")
-    scraped_jobs = []
-    
-    scraped_jobs.extend(fetch_jobkorea())
-    scraped_jobs.extend(fetch_peoplenjob())  # 인디드 대신 피플앤잡 호출
-    
-    print(f"🏁 [크롤러 수집 완료] 총 {len(scraped_jobs)}개의 공고가 모였습니다.")
-    return scraped_jobs
+    print(f"✅ 웹 스크래핑 완료! 총 {len(scraped_results)}건 수집됨.")
+    return scraped_results
 
 
 if __name__ == "__main__":
-    # 개별 테스트용 코드
-    run_scraper_collection()
+    # 단독 테스트 실행용
+    results = scrape_jobs()
+    for r in results[:3]:
+        print(r)
