@@ -1,7 +1,6 @@
 import os
 import json
-from google import genai
-from google.genai import types
+import google.generativeai as genai  # 가장 안정적인 라이브러리로 교체합니다.
 import config
 import telegram_logger
 
@@ -13,12 +12,10 @@ def run_ai_filter(all_jobs):
     수집된 전체 채용 공고(all_jobs)를 Gemini AI에게 보내
     질문자님의 프로필과 매칭되는 알짜 공고만 골라내고 분석을 요청하는 함수입니다.
     """
-    # 만약 공고가 하나도 없다면 AI를 깨울 필요 없이 바로 종료합니다.
     if not all_jobs:
         print("ℹ️ [AI 필터] 수집된 공고가 없어 AI 분석을 건너뜁니다.")
         return "금일 수집된 조건에 맞는 채용 공고가 없습니다."
 
-    # 구글 API 키가 설정되어 있는지 확인합니다.
     if not GEMINI_API_KEY:
         print("⚠️ [AI 필터] GEMINI_API_KEY가 설정되지 않았습니다.")
         return "AI API 키 설정 오류로 분석을 진행하지 못했습니다."
@@ -26,14 +23,13 @@ def run_ai_filter(all_jobs):
     print(f"🤖 Gemini AI에게 {len(all_jobs)}개의 공고 분석을 요청합니다...")
 
     try:
-        # 1. 최신 공식 구글 GenAI 클라이언트를 생성합니다.
-        client = genai.Client(api_key=GEMINI_API_KEY)
+        # 구버전 라이브러리의 안정적인 세팅 방식입니다.
+        genai.configure(api_key=GEMINI_API_KEY)
 
-        # 2. AI에게 넘겨줄 채용공고 리스트를 이쁘게 글자(텍스트)로 변환합니다.
+        # 텍스트 데이터 변환
         jobs_json_text = json.dumps(all_jobs, ensure_ascii=False, indent=2)
 
-        # 3. AI 면접관에게 보낼 "역할 대본(프롬프트)"을 작성합니다.
-        # config.py에 적어둔 질문자님의 정보들이 여기에 쏙쏙 조립됩니다.
+        # AI 면접관 뼈대 대본
         prompt = f"""
 당신은 최고의 헤드헌터이자 커리어 컨설턴트 AI입니다.
 아래 제공된 [채용 공고 리스트]를 꼼꼼히 읽고, [구직자 프로필] 및 [희망 기업 조건]과 가장 잘 어울리는 알짜 공고를 선별하여 리포트를 작성해 주세요.
@@ -67,27 +63,14 @@ def run_ai_filter(all_jobs):
 (추천할 만한 공고들을 위 양식으로 이어서 작성해 주시고, 만약 정말 매칭되는 게 없다면 "조건에 맞는 추천 공고가 없습니다."라고 정중히 적어주세요.)
 """
 
-        # 4. 가장 똑똑하고 합리적인 가성비를 자랑하는 gemini-2.5-flash 모델을 깨워 대화를 나눕니다.
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt
-        )
+        # 호환성이 가장 높고 똑똑한 gemini-2.5-flash 모델을 명시하여 호출합니다.
+        model = genai.GenerativeModel('gemini-2.5-flash')
+        response = model.generate_content(prompt)
 
-        # 5. AI가 답변해 준 최종 리포트 텍스트를 배달용으로 반환합니다.
         ai_report = response.text
         print("✅ [AI 필터] 분석 리포트 생성이 완료되었습니다.")
         return ai_report
 
     except Exception as e:
-        # 🚨 실패하면 안전장치(텔레그램 SOS)를 발동시키고 에러 메시지를 보냅니다.
         telegram_logger.log_error("ai_filter.py (Gemini AI 분석 중)", e)
         return f"❌ AI 분석 중 에러가 발생했습니다: {e}"
-
-if __name__ == "__main__":
-    # 임시 테스트용 가짜 데이터 주머니
-    sample_jobs = [
-        {"site": "피플앤잡", "company": "가상화장품기업", "title": "해외영업 주니어 채용 (영어 필수)", "url": "https://example.com", "location": "서울", "experience": "경력무관"}
-    ]
-    # 이 파일만 따로 실행했을 때 AI가 잘 작동하는지 확인하는 용도입니다.
-    # (실제 구동을 위해선 GEMINI_API_KEY가 환경변수에 들어있어야 합니다.)
-    print(run_ai_filter(sample_jobs))
