@@ -2,8 +2,9 @@ name: Run Job Automation Bot
 
 on:
   schedule:
-    - cron: '0 0 * * *' # 매일 정해진 시간에 자동 실행
-  workflow_dispatch: # 수동 실행 [Run workflow] 버튼 활성화
+    # UTC 00:00 = 한국시간(KST) 오전 9시. (Actions 부하로 수 분~수십 분 지연 가능)
+    - cron: '0 0 * * *'
+  workflow_dispatch:  # 수동 실행 버튼
 
 jobs:
   build:
@@ -11,10 +12,10 @@ jobs:
 
     steps:
     - name: 소스코드 가져오기
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: 파이썬 설치하기
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.10'
 
@@ -23,16 +24,14 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4 google-generativeai
 
-    - name: workflows 폴더로 이동 후 메인 프로그램 실행
+    - name: 메인 프로그램 실행
       env:
-        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         SARAMIN_KEY: ${{ secrets.SARAMIN_KEY }}
         GOYONG_KEY: ${{ secrets.GOYONG_KEY }}
       run: |
-        # 📂 모든 파일이 모여있는 workflows 폴더 안으로 들어갑니다.
         cd .github/workflows
-        
-        # 🎯 그 위치에서 안전하게 메인 프로그램을 실행합니다.
         python main.py
