@@ -1,11 +1,14 @@
 name: Run Job Automation Bot
 
 on:
-  workflow_dispatch: # 수동 실행 [Run workflow] 버튼을 활성화합니다.
+  schedule:
+    - cron: '0 0 * * *' # 매일 정해진 시간에 자동 실행
+  workflow_dispatch: # 수동 실행 [Run workflow] 버튼 활성화
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
     - name: 소스코드 가져오기
       uses: actions/checkout@v3
@@ -20,8 +23,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4 google-generativeai
 
-    # [핵심 수정] 루트 폴더 기준에서 .github/workflows 안에 있는 main.py를 조준 사격하여 실행합니다.
-    - name: 메인 프로그램 실행해서 텔레그램으로 배달하기
+    - name: workflows 폴더로 이동 후 메인 프로그램 실행
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -29,4 +31,8 @@ jobs:
         SARAMIN_KEY: ${{ secrets.SARAMIN_KEY }}
         GOYONG_KEY: ${{ secrets.GOYONG_KEY }}
       run: |
-        python .github/workflows/main.py
+        # 📂 모든 파일이 모여있는 workflows 폴더 안으로 들어갑니다.
+        cd .github/workflows
+        
+        # 🎯 그 위치에서 안전하게 메인 프로그램을 실행합니다.
+        python main.py
