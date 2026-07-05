@@ -24,7 +24,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4 google-generativeai
 
-    # [.github/workflows 폴더 안으로 직접 진입해서 실행하도록 고정]
+    # 현재 파일들이 들어있는 .github/workflows 폴더 안으로 직접 진입해서 실행하도록 고정합니다.
     - name: 메인 프로그램 실행해서 텔레그램으로 배달하기
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN }}
