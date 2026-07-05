@@ -1,19 +1,16 @@
 name: Run Job Automation Bot
 
+# 깃허브에게 수동 실행 버튼을 강제로 그리라고 명령하는 핵심 구간입니다.
 on:
-  schedule:
-    - cron: '0 0 * * *'
-  workflow_dispatch:
+  workflow_dispatch: 
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
     - name: 소스코드 가져오기
       uses: actions/checkout@v3
 
-     Tar파이썬 설치하기
     - name: 파이썬 설치하기
       uses: actions/setup-python@v4
       with:
@@ -24,7 +21,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4 google-generativeai
 
-    # 현재 파일들이 들어있는 .github/workflows 폴더 안으로 직접 진입해서 실행하도록 고정합니다.
+    # 현재 파일들이 어느 구석에 박혀있든 알아서 main.py를 조준 사격해서 켭니다.
     - name: 메인 프로그램 실행해서 텔레그램으로 배달하기
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN }}
@@ -33,5 +30,6 @@ jobs:
         SARAMIN_KEY: ${{ secrets.SARAMIN_KEY }}
         GOYONG_KEY: ${{ secrets.GOYONG_KEY }}
       run: |
-        cd .github/workflows
+        TARGET_DIR=$(find . -name "main.py" -exec dirname {} \;)
+        cd "$TARGET_DIR"
         python main.py
