@@ -1,11 +1,15 @@
 import sys
 import os
 
-# 📂 현재 main.py가 있는 폴더 위치를 파이썬에게 강제로 주입하여 주변 부품들을 인식하게 만듭니다.
+# 📂 현재 main.py 파일이 있는 폴더(.github/workflows) 위치를 찾습니다.
 current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# 🎯 파이썬에게 이 폴더 내부를 먼저 뒤져서 fetch_api, fetch_scraper 등을 찾으라고 순위를 1등으로 올려줍니다.
 sys.path.insert(0, current_dir)
 
-# (이 아래에 기존의 import requests, import fetch_api 등 원래 코드가 이어지면 됩니다!)
+# ----------------------------------------------------------------------
+# (이 아래부터는 기존에 있던 import requests, import fetch_api 등 원래 코드가 그대로 이어지면 됩니다!)
+
 import os
 import requests
 import datetime
