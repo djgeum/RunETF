@@ -1,0 +1,43 @@
+name: 매일 아침 채용정보 배달 로봇
+
+# ⏰ 언제 실행할지 정하는 규칙
+on:
+  schedule:
+    # 영국 시간(UTC) 기준이라 한국 시간(아침 9시)에 맞추기 위해 '0 0 * * *'으로 적습니다.
+    - cron: '0 0 * * *'
+  # (보너스) 내가 원할 때 깃허브 사이트에서 초록색 버튼을 눌러 바로 실행해 볼 수도 있게 하는 기능이에요!
+  workflow_dispatch:
+
+# 🤖 로봇이 해야 할 일들의 순서
+jobs:
+  run-job-bot:
+    # 깃허브가 제공하는 최신 공짜 리눅스 컴퓨터를 켭니다.
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1단계: RunETF 방에 올려둔 우리의 파이썬 파일들을 가상 컴퓨터로 가져옵니다.
+    - name: 내 코드 가져오기
+      uses: actions/checkout@v4
+
+    # 2단계: 가상 컴퓨터에 파이썬(Python)을 설치합니다.
+    - name: 파이썬 설치하기
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    # 3단계: 인터넷 요청(requests)이나 구글 AI(google-genai) 같은 필요한 도구상자들을 설치합니다.
+    - name: 필요한 도구상자(라이브러리) 설치하기
+      run: |
+        pip install requests BeautifulSoup4 google-genai
+
+    # 4단계: 드디어 메인 파일(main.py)을 실행합니다!
+    - name: 메인 프로그램 실행해서 텔레그램으로 배달하기
+      # 🔐 깃허브 비밀 금고(Secrets)에서 열쇠들을 꺼내서 프로그램에 전달하는 중요한 순간이에요!
+      env:
+        SARAMIN_KEY: ${{ secrets.SARAMIN_KEY }}
+        GOYONG_KEY: ${{ secrets.GOYONG_KEY }}
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        # 나중에 Gemini AI 쓸 때 필요한 구글 API 열쇠 이름을 미리 넣어두었어요!
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} 
+      run: python main.py
