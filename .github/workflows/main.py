@@ -1,3 +1,11 @@
+import sys
+import os
+
+# 📂 현재 main.py가 있는 폴더 위치를 파이썬에게 강제로 주입하여 주변 부품들을 인식하게 만듭니다.
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
+# (이 아래에 기존의 import requests, import fetch_api 등 원래 코드가 이어지면 됩니다!)
 import os
 import requests
 import datetime
