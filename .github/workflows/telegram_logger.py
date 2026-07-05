@@ -1,66 +1,65 @@
 import os
 import requests
 
+try:
+    import config
+    DEFAULT_FILENAME = getattr(config, "DEFAULT_REPORT_FILENAME", "채용_정보_요약_리포트.txt")
+except ImportError:
+    DEFAULT_FILENAME = "채용_정보_요약_리포트.txt"
+
+
 class TelegramLogger:
     def __init__(self, token=None, chat_id=None):
-        # 외부에서 주입되지 않았다면 환경 변수(GitHub Secrets)에서 직접 가져옵니다.
-        self.token = token or os.getenv("TELEGRAM_BOT_TOKEN")
+        self.token = token or os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("TELEGRAM_TOKEN")
         self.chat_id = chat_id or os.getenv("TELEGRAM_CHAT_ID")
         self.base_url = f"https://api.telegram.org/bot{self.token}"
 
     def log(self, message):
-        """단순 텍스트 메시지(진행 상황 알림 등)를 텔레그램으로 보냅니다."""
+        """단순 텍스트 메시지 전송. (Markdown 파싱 미사용 → 특수문자 안전)"""
         if not self.token or not self.chat_id:
-            print("⚠️ 텔레그램 토큰 또는 Chat ID가 설정되지 않아 메시지를 보낼 수 없습니다.")
-            print(f"[로그 출력]: {message}")
+            print("⚠️ 텔레그램 토큰/Chat ID 없음. 로그만 출력.")
+            print(f"[로그]: {message}")
             return
 
         url = f"{self.base_url}/sendMessage"
-        payload = {
-            "chat_id": self.chat_id,
-            "text": message,
-            "parse_mode": "Markdown"
-        }
-        
+        # 텔레그램 텍스트 상한(4096자) 방어
+        text = message if len(message) <= 4000 else message[:4000] + "\n...(생략)"
+        payload = {"chat_id": self.chat_id, "text": text}  # parse_mode 제거
+
         try:
             response = requests.post(url, json=payload, timeout=10)
             if response.status_code != 200:
-                print(f"❌ 텔레그램 메시지 전송 실패 (상태 코드: {response.status_code})")
+                print(f"❌ 텔레그램 전송 실패 status={response.status_code}, body={response.text[:200]}")
         except Exception as e:
-            print(f"❌ 텔레그램 전송 중 예외 발생: {e}")
+            print(f"❌ 텔레그램 전송 예외: {e}")
 
-    def send_report(self, report_text, filename="채용_정보_요약_리포트.txt"):
-        """최종 AI 분석 결과를 .txt 파일로 만들어서 텔레그램 채널로 배달합니다."""
+    def send_report(self, report_text, filename=None):
+        """AI 리포트를 .txt 파일로 만들어 전송."""
+        filename = filename or DEFAULT_FILENAME
         if not self.token or not self.chat_id:
-            print("⚠️ 텔레그램 토큰 또는 Chat ID가 없어 파일 전송을 취소합니다.")
+            print("⚠️ 텔레그램 정보 없음 → 파일 전송 취소.")
             return
 
-        # 1. 텍스트 내용을 가상 환경 내에 실제 임시 파일로 저장합니다.
         with open(filename, "w", encoding="utf-8") as f:
             f.write(report_text)
 
         url = f"{self.base_url}/sendDocument"
-        
-        # 2. 저장한 파일을 열어 텔레그램으로 쏘아 올립니다.
         try:
             with open(filename, "rb") as document:
                 files = {"document": (filename, document)}
                 payload = {
                     "chat_id": self.chat_id,
-                    "caption": "📋 Gemini AI가 선별한 맞춤형 신규 채용 정보 리포트가 도착했습니다!"
+                    "caption": "📋 AI가 선별한 맞춤형 채용 리포트가 도착했습니다!",
                 }
                 response = requests.post(url, data=payload, files=files, timeout=20)
-                
                 if response.status_code == 200:
-                    print("🚀 채용 정보 리포트 파일 배달 완료!")
+                    print("🚀 리포트 파일 배달 완료!")
                 else:
-                    print(f"❌ 리포트 파일 전송 실패 (상태 코드: {response.status_code})")
-                    # 파일 전송 실패 시 텍스트로라도 백업 전송 시도
-                    self.log("⚠️ 리포트 파일 전송에 실패하여 텍스트로 대체하여 보냅니다.\n\n" + report_text[:3000])
-                    
+                    print(f"❌ 파일 전송 실패 status={response.status_code}, body={response.text[:200]}")
+                    self.log("⚠️ 파일 전송 실패 → 텍스트로 대체 전송.\n\n" + report_text[:3500])
         except Exception as e:
-            print(f"❌ 파일 배달 중 예외 발생: {e}")
+            print(f"❌ 파일 배달 예외: {e}")
+            self.log("⚠️ 파일 배달 예외 → 텍스트로 대체 전송.\n\n" + report_text[:3500])
         finally:
-            # 3. 전송이 끝나면 가상 컴퓨터 안의 임시 파일을 깔끔하게 지워줍니다.
             if os.path.exists(filename):
                 os.remove(filename)
