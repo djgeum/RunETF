@@ -1,43 +1,47 @@
-name: 매일 아침 채용정보 배달 로봇
+name: Run Job Automation Bot
 
-# ⏰ 언제 실행할지 정하는 규칙
 on:
   schedule:
-    # 영국 시간(UTC) 기준이라 한국 시간(아침 9시)에 맞추기 위해 '0 0 * * *'으로 적습니다.
+    # 매일 아침 9시 자동 실행 (UTC 00:00 = 한국 시간 09:00)
     - cron: '0 0 * * *'
-  # (보너스) 내가 원할 때 깃허브 사이트에서 초록색 버튼을 눌러 바로 실행해 볼 수도 있게 하는 기능이에요!
   workflow_dispatch:
+    # 우리가 원할 때 언제든 수동으로 실행할 수 있는 버튼을 만듭니다.
 
-# 🤖 로봇이 해야 할 일들의 순서
 jobs:
-  run-job-bot:
-    # 깃허브가 제공하는 최신 공짜 리눅스 컴퓨터를 켭니다.
+  build:
     runs-on: ubuntu-latest
 
     steps:
-    # 1단계: RunETF 방에 올려둔 우리의 파이썬 파일들을 가상 컴퓨터로 가져옵니다.
-    - name: 내 코드 가져오기
-      uses: actions/checkout@v4
+    # 1단계: 깃허브 저장소에 있는 소스코드를 가상 컴퓨터로 통째로 다운로드합니다.
+    - name: 소스코드 가져오기
+      uses: actions/checkout@v3
 
-    # 2단계: 가상 컴퓨터에 파이썬(Python)을 설치합니다.
+    # 2단계: 가상 컴퓨터에 파이썬(Python 3.10)을 설치합니다.
     - name: 파이썬 설치하기
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v4
       with:
         python-version: '3.10'
 
-    # 3단계: 인터넷 요청(requests)이나 구글 AI(google-genai) 같은 필요한 도구상자들을 설치합니다.
-    - name: 필요한 도구상자(라이브러리) 설치하기
+    # 3단계: 우리 프로그램에 필요한 필수 도구(라이브러리)들을 설치합니다.
+    - name: 필수 라이브러리 설치하기
       run: |
-        pip install requests BeautifulSoup4 google-genai
+        python -m pip install --upgrade pip
+        pip install requests beautifulsoup4 google-generativeai
 
-    # 4단계: 드디어 메인 파일(main.py)을 실행합니다!
+    # 4단계: 메인 프로그램을 실행해서 텔레그램 채널로 배달합니다.
+    # [수정포인트] 파일이 하위 폴더에 숨어있어도 무조건 찾아내서 실행하도록 경로를 보완했습니다.
     - name: 메인 프로그램 실행해서 텔레그램으로 배달하기
-      # 🔐 깃허브 비밀 금고(Secrets)에서 열쇠들을 꺼내서 프로그램에 전달하는 중요한 순간이에요!
       env:
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         SARAMIN_KEY: ${{ secrets.SARAMIN_KEY }}
         GOYONG_KEY: ${{ secrets.GOYONG_KEY }}
-        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        # 나중에 Gemini AI 쓸 때 필요한 구글 API 열쇠 이름을 미리 넣어두었어요!
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} 
-      run: python main.py
+      run: |
+        if [ -f "main.py" ]; then
+          python main.py
+        elif [ -f "RunETF/main.py" ]; then
+          cd RunETF && python main.py
+        else
+          python $(find . -name "main.py" | head -n 1)
+        fi
