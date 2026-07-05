@@ -1,7 +1,7 @@
 name: Run Job Automation Bot
 
 on:
-  workflow_dispatch: # 👈 우측에 [Run workflow] 수동 버튼을 강제로 소환하는 핵심 명령어입니다!
+  workflow_dispatch: # 수동 실행 [Run workflow] 버튼을 활성화합니다.
 
 jobs:
   build:
@@ -20,6 +20,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install requests beautifulsoup4 google-generativeai
 
+    # [핵심 수정] 루트 폴더 기준에서 .github/workflows 안에 있는 main.py를 조준 사격하여 실행합니다.
     - name: 메인 프로그램 실행해서 텔레그램으로 배달하기
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN || secrets.TELEGRAM_TOKEN }}
@@ -28,6 +29,4 @@ jobs:
         SARAMIN_KEY: ${{ secrets.SARAMIN_KEY }}
         GOYONG_KEY: ${{ secrets.GOYONG_KEY }}
       run: |
-        # 파일들이 모여있는 폴더로 직접 들어가서 안전하게 main.py를 실행합니다.
-        cd .github/workflows
-        python main.py
+        python .github/workflows/main.py
