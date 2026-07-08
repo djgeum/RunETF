@@ -1,134 +1,89 @@
 import os
 import sys
 import requests
+import pandas as pd  # 엑셀을 읽기 위한 핵심 도구
 from bs4 import BeautifulSoup
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# 브라우저인 척 위장하기 위한 강력한 헤더
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7"
-}
+def load_target_companies():
+    """target_companies.xlsx 파일에서 '기업명' 열의 회사 리스트를 읽어옵니다."""
+    excel_path = os.path.join(current_dir, "target_companies.xlsx")
+    if not os.path.exists(excel_path):
+        print("ℹ️ [엑셀 엔진] target_companies.xlsx 파일이 없어 타겟 기업 수집을 건너넙니다.")
+        return []
+    try:
+        df = pd.read_excel(excel_path)
+        if "기업명" in df.columns:
+            # 공백을 제거하고 유효한 기업명만 리스트로 만듭니다.
+            companies = df["기업명"].dropna().astype(str).str.strip().tolist()
+            print(f"📂 [엑셀 엔진] 성공적으로 {len(companies)}개의 타겟 기업을 로드했습니다.")
+            return companies
+        else:
+            print("⚠️ [엑셀 엔진] 엑셀 파일에 '기업명' 열(Column)이 존재하지 않습니다.")
+            return []
+    except Exception as e:
+        print(f"❌ [엑셀 엔진] 엑셀 파일을 읽는 중 오류 발생: {e}")
+        return []
 
 def scrape_jobs():
-    print("🕸️ [웹 스크래핑 엔진] 피플앤잡 & 원티드 스나이핑 시작...")
-    web_results = []
-    diag = []
-    seen_urls = set()
+    """기존 키워드 수집과 엑셀 타겟 기업들의 채용 공고를 함께 수집합니다."""
+    print("🌐 [웹 스크래핑 엔진] 가동 시작...")
+    scraped_results = []
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
 
-    # =================================================================
-    # 1. 피플앤잡 (PeoplenJob) - 외국계 타깃
-    # =================================================================
+    # 1. 기존 직무/산업 키워드 기반 탐색
+    keywords = ["해외영업", "화장품", "마케팅"]
+    for keyword in keywords:
+        print(f"🔎 직무 키워드 '{keyword}' 관련 공고 탐색 중...")
+        search_url = f"https://www.saramin.co.kr/zf_user/search/recruit?searchword={keyword}"
+        scraped_results.extend(_parse_saramin(search_url, headers, f"키워드: {keyword}"))
+
+    # 2. 🔥 [새 기능] 엑셀 타겟 기업 기반 무조건 탐색
+    target_companies = load_target_companies()
+    for company in target_companies:
+        print(f"🎯 타겟 기업 무조건 수집: '{company}' 공고 검색 중...")
+        # 사람인에서 회사명으로 정밀 검색하는 URL
+        search_url = f"https://www.saramin.co.kr/zf_user/search/recruit?searchword={company}"
+        # 타겟 기업 공고는 정보창에 [★타겟기업] 마크를 달아줍니다.
+        scraped_results.extend(_parse_saramin(search_url, headers, f"[★타겟기업] {company}"))
+
+    print(f"✅ 웹 스크래핑 완료! 총 {len(scraped_results)}건 수집됨 (중복 포함).")
+    return scraped_results
+
+def _parse_saramin(url, headers, source_tag):
+    """사람인 페이지를 파싱하는 내부 공통 함수"""
+    results = []
     try:
-        # q=글로벌, career=1(신입), career=2(경력 1~3년 미만) 등 활용 가능
-        # 여기서는 가장 많이 올라오는 '해외', '마케팅' 키워드로 최신 1페이지만 타겟팅
-        pj_keywords = ["글로벌", "마케팅"]
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            return results
+        soup = BeautifulSoup(response.text, "html.parser")
+        job_listings = soup.select(".item_recruit")
         
-        for keyword in pj_keywords:
-            # 피플앤잡 검색 URL (최신순 정렬)
-            url = f"https://www.peoplenjob.com/jobs?q={keyword}"
-            response = requests.get(url, headers=HEADERS, timeout=10)
+        for item in job_listings[:3]:  # 속도와 차단 방지를 위해 최대 3개씩만
+            title_element = item.select_one(".job_tit a")
+            corp_element = item.select_one(".corp_name a")
             
-            if response.status_code != 200:
-                diag.append(f"⚠️ 피플앤잡 '{keyword}' 접근 실패: {response.status_code}")
-                continue
+            if title_element and corp_element:
+                title = title_element.get_text(strip=True)
+                corp = corp_element.get_text(strip=True)
+                link = "https://www.saramin.co.kr" + title_element["href"]
                 
-            soup = BeautifulSoup(response.text, 'html.parser')
-            # 공고 리스트 추출 (클래스명 job-item을 가진 tr 태그 등)
-            job_rows = soup.select("table.job-list tbody tr")
-            
-            added = 0
-            for row in job_rows:
-                title_tag = row.select_one(".job-title a")
-                company_tag = row.select_one(".name a")
+                conditions = [span.get_text(strip=True) for span in item.select(".job_condition span")]
+                condition_txt = ", ".join(conditions) if conditions else "정보 없음"
                 
-                if not title_tag or not company_tag:
-                    continue
-                    
-                title = title_tag.text.strip()
-                company = company_tag.text.strip()
-                link = "https://www.peoplenjob.com" + title_tag['href']
-                
-                if link in seen_urls:
-                    continue
-                    
-                seen_urls.add(link)
-                web_results.append({
-                    "site": "피플앤잡",
-                    "company": company,
+                results.append({
+                    "site": "사람인(웹)",
+                    "company": corp,
                     "title": title,
                     "url": link,
-                    "info": f"키워드: {keyword} (외국계 중심)"
+                    "info": f"조건: {condition_txt} / 태그: {source_tag}"
                 })
-                added += 1
-                
-            diag.append(f"✅ 피플앤잡 '{keyword}' 스크래핑 완료: {added}건 수집")
-            
     except Exception as e:
-        diag.append(f"❌ 피플앤잡 스크래핑 중 에러 발생: {e}")
-
-    # =================================================================
-    # 2. 원티드 (Wanted) - 내부 API 직접 호출 (스타트업/IT/외국계)
-    # =================================================================
-    try:
-        # 원티드 직군 코드: 518(마케팅), 523(기획/비즈니스), 524(영업)
-        # years=0 (신입), years=1 (1년차)
-        wanted_url = "https://www.wanted.co.kr/api/v4/jobs"
-        params = {
-            "country": "kr",
-            "locations": "all",
-            "years": "0",  # 최소 연차
-            "years_max": "1", # 최대 연차
-            "job_sort": "job.latest_order", # 최신순
-            "tag_type_ids": "518", # 마케팅 직군 예시
-            "limit": "20" # 딱 20개만
-        }
-        
-        response = requests.get(wanted_url, params=params, headers=HEADERS, timeout=10)
-        
-        if response.status_code == 200:
-            data = response.json()
-            jobs = data.get("data", [])
-            added = 0
-            
-            for job in jobs:
-                company = job.get("company", {}).get("name", "회사명 미상")
-                title = job.get("position", "제목 미상")
-                job_id = job.get("id")
-                link = f"https://www.wanted.co.kr/wd/{job_id}"
-                
-                if link in seen_urls:
-                    continue
-                    
-                seen_urls.add(link)
-                web_results.append({
-                    "site": "원티드",
-                    "company": company,
-                    "title": title,
-                    "url": link,
-                    "info": "조건: 신입~1년차 | 마케팅/비즈니스 직군"
-                })
-                added += 1
-                
-            diag.append(f"✅ 원티드 API 스크래핑 완료: {added}건 수집")
-        else:
-            diag.append(f"⚠️ 원티드 접근 실패: {response.status_code}")
-            
-    except Exception as e:
-        diag.append(f"❌ 원티드 스크래핑 중 에러 발생: {e}")
-
-    print(f"✅ 웹 스크래핑 완료! 총 {len(web_results)}건 확보")
-    return web_results, diag
-
-if __name__ == "__main__":
-    results, diag = scrape_jobs()
-    print("\n--- 진단 로그 ---")
-    for line in diag:
-        print(line)
-    print(f"\n총 {len(results)}건 수집됨")
-    for r in results[:5]:
-        print(r)
+        print(f"⚠️ 파싱 중 에러 발생 (스킵): {e}")
+    return results
