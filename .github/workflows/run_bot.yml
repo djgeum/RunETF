@@ -2,9 +2,9 @@ name: Run Job Automation Bot
 
 // on:
 //  schedule:
-    # UTC 00:00 = 한국시간(KST) 오전 9시. (Actions 부하로 수 분~수십 분 지연 가능)
-    - cron: '0 0 * * *'
-  workflow_dispatch:  # 수동 실행 버튼
+//    # UTC 00:00 = 한국시간(KST) 오전 9시. (Actions 부하로 수 분~수십 분 지연 가능)
+//    - cron: '0 0 * * *'
+//  workflow_dispatch:  # 수동 실행 버튼
 
 jobs:
   build:
