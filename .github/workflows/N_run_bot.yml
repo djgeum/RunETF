@@ -52,3 +52,14 @@ jobs:
       run: |
         cd .github/workflows
         python N_ai_consolidator.py
+
+    # -----------------------------------------------------------------
+    # [장부 영구 보존 파트] 오늘 검토한 URL 기록을 깃허브에 자동 Commit & Push
+    # -----------------------------------------------------------------
+    - name: 5. 중복 방지 비밀 장부 자동 업데이트 및 Push
+      run: |
+        git config --global user.name "github-actions[bot]"
+        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+        git add .github/workflows/processed_urls.txt || true
+        git commit -m "🤖 자동 장부 업데이트: 중복 방지용 기록 누적" || true
+        git push || true
