@@ -10,18 +10,17 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+# 🔥 [지시 반영] 통합 핵심 키워드 및 조합용 서픽스
+CORE_KEYWORDS = ["마케팅", "해외영업", "신입", "공채", "글로벌", "marketing", "MD", "브랜드"]
 SEARCH_SUFFIXES = ["마케팅", "해외영업", "MD", "브랜드", "글로벌"]
-KR_TITLE_KEYWORDS = ["마케팅", "해외영업", "신입", "공채", "글로벌", "marketing", "md", "브랜드"]
-GLOBAL_TITLE_KEYWORDS = ["마케팅", "신입", "공채", "글로벌", "marketing", "brand"]
-JOB_KEYWORDS = ["해외영업", "글로벌", "마케팅", "영업", "sales", "global", "marketing"]
 
 def load_target_companies():
     excel_path = os.path.join(current_dir, "target_companies.xlsx")
     if not os.path.exists(excel_path): return []
     try:
         df = pd.read_excel(excel_path)
-        if "기업명" in df.columns and "기업분류" in df.columns:
-            return [{"name": str(row["기업명"]).strip(), "type": str(row["기업분류"]).strip()} for _, row in df.iterrows() if pd.notna(row["기업명"]) and pd.notna(row["기업분류"])]
+        if "기업명" in df.columns:
+            return [str(name).strip() for name in df["기업명"].dropna()]
     except Exception: pass
     return []
 
@@ -38,40 +37,31 @@ def deep_crawl_and_filter(url, headers):
             iframe_soup = BeautifulSoup(iframe_res.text, "html.parser")
             text_content = iframe_soup.get_text(strip=True)
             if len(text_content) > 150:
-                if any(kw.lower() in text_content.lower() for kw in JOB_KEYWORDS): return True, "본문 텍스트 매칭 성공"
+                if any(kw.lower() in text_content.lower() for kw in CORE_KEYWORDS): return True, "본문 텍스트 매칭 성공"
                 else: return False, "직무 불일치"
             else: return True, "통이미지 공고 (★수동 링크 확인 필요)"
-        return True, "특수 대기업/외국계 채용 양식 (★수동 링크 확인 필요)"
+        return True, "특수 채용 양식 (★수동 링크 확인 필요)"
     except Exception as e:
-        return True, f"상세페이지 분석 제한 (수동 확인): {e}"
+        return True, f"상세페이지 분석 제한: {e}"
 
 def scrape_saramin_target_only():
-    print("🤖 [사람인 봇] 유료광고 우회 + 회사명+직무 조합 검색 엔진 가동...")
+    print("🤖 [사람인 봇] 8대 통일 키워드 + 유료광고 우회 검색 시작...")
     results = []
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
-    companies_list = load_target_companies()
-    if not companies_list: return
-        
-    for item in companies_list:
-        company_name = item["name"]
-        company_type = item["type"]
-        title_keywords = GLOBAL_TITLE_KEYWORDS if "외국" in company_type else KR_TITLE_KEYWORDS
-        type_tag = "외국기업" if "외국" in company_type else "국내기업"
-        
+    companies = load_target_companies()
+    
+    for company_name in companies:
         for suffix in SEARCH_SUFFIXES:
             combined_keyword = f"{company_name} {suffix}"
-            print(f"🎯 사람인 정밀 검색: [{combined_keyword}]")
+            print(f"🎯 사람인 조합 정밀 검색: [{combined_keyword}]")
             url = f"https://www.saramin.co.kr/zf_user/search/recruit?searchword={combined_keyword}"
             
             try:
                 res = requests.get(url, headers=headers, timeout=5)
                 soup = BeautifulSoup(res.text, "html.parser")
-                
-                # 🔥 [핵심 방어막] 상단 유료 광고(Premium 등) 영역을 완전히 제외하고, 
-                # 오직 일반 검색 결과 리스트 탭(#recruit_info_list) 안의 공고들만 정확히 도려냅니다.
                 job_listings = soup.select("#recruit_info_list .item_recruit")
                 
-                for listing in job_listings[:5]: # 광고가 빠진 순수 리스트이므로 상단 5개면 충분히 커버됨
+                for listing in job_listings[:5]:
                     title_el = listing.select_one(".job_tit a")
                     corp_el = listing.select_one(".corp_name a")
                     
@@ -82,12 +72,12 @@ def scrape_saramin_target_only():
                         company_clean = company_name.replace(" ", "").lower()
                         corp_clean = corp.replace(" ", "").lower()
                         if company_clean not in corp_clean and corp_clean not in company_clean: continue 
-                        if not any(kw.lower() in title.lower() for kw in title_keywords): continue
+                        if not any(kw.lower() in title.lower() for kw in CORE_KEYWORDS): continue
                             
                         link = "https://www.saramin.co.kr" + title_el["href"]
                         is_pass, reason = deep_crawl_and_filter(link, headers)
                         if is_pass:
-                            results.append({"site": "사람인", "company": corp, "title": title, "url": link, "info": f"[★타겟기업-{type_tag}] {reason}"})
+                            results.append({"site": "사람인", "company": corp, "title": title, "url": link, "info": f"[타겟기업] {reason}"})
             except Exception as e:
                 print(f"⚠️ {combined_keyword} 검색 에러: {e}")
             time.sleep(0.3)
