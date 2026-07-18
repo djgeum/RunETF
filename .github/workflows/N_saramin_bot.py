@@ -5,166 +5,158 @@ import time
 import requests
 import pandas as pd
 from bs4 import BeautifulSoup
-from io import BytesIO
-from PIL import Image
-import google.generativeai as genai
 
 # =====================================================================
-# [환경 세팅] 경로 및 AI 모델 초기화
+# [환경 세팅] 경로 고정 및 질문자님 전용 매칭 키워드 세팅
 # =====================================================================
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# 깃허브 환경 변수에서 Gemini API 키 가져오기
-API_KEY = os.getenv("GEMINI_API_KEY")
-if API_KEY:
-    genai.configure(api_key=API_KEY)
-# 이미지 판독이 가능한 1.5 Flash 모델 사용
-ai_model = genai.GenerativeModel('gemini-1.5-flash')
+# 1차 검문: 겉화면 공고 제목에서 거를 국내/외국계 분류별 키워드
+KR_TITLE_KEYWORDS = ["마케팅", "해외영업", "신입", "공채", "글로벌", "marketing", "md", "브랜드"]
+GLOBAL_TITLE_KEYWORDS = ["마케팅", "신입", "공채", "글로벌", "marketing", "brand"]
 
-# 질문자님의 타겟 핵심 직무 키워드
-TARGET_KEYWORDS = ["해외영업", "글로벌", "마케팅", "화장품", "영업", "sales", "global", "marketing"]
+# 2차 검문: 상세 본문 텍스트 내에 포함되어야 할 직무 키워드
+JOB_KEYWORDS = ["해외영업", "글로벌", "마케팅", "화장품", "영업", "sales", "global", "marketing"]
 
 
 def load_target_companies():
-    """엑셀 파일에서 타겟 기업 리스트를 가져옵니다."""
+    """target_companies.xlsx 파일에서 '기업명'과 '기업분류'를 함께 읽어옵니다."""
     excel_path = os.path.join(current_dir, "target_companies.xlsx")
     if not os.path.exists(excel_path):
-        print("ℹ️ target_companies.xlsx 파일이 없어 종료합니다.")
+        print("ℹ️ [사람인 봇] target_companies.xlsx 파일이 없어 종료합니다.")
         return []
     try:
         df = pd.read_excel(excel_path)
-        if "기업명" in df.columns:
-            return df["기업명"].dropna().astype(str).str.strip().tolist()
+        if "기업명" in df.columns and "기업분류" in df.columns:
+            companies_data = []
+            for _, row in df.iterrows():
+                if pd.notna(row["기업명"]) and pd.notna(row["기업분류"]):
+                    companies_data.append({
+                        "name": str(row["기업명"]).strip(),
+                        "type": str(row["기업분류"]).strip() # '국내' 또는 '외국'
+                    })
+            print(f"📂 [사람인 봇] 엑셀에서 {len(companies_data)}개의 분류된 기업 목록을 로드했습니다.")
+            return companies_data
+        else:
+            print("⚠️ [사람인 봇] 엑셀에 '기업명' 또는 '기업분류' 열이 없습니다.")
+            return []
     except Exception as e:
-        print(f"❌ 엑셀 읽기 오류: {e}")
-    return []
-
-def check_image_with_ai(image_url, headers):
-    """(AI 시각 기능) 이미지를 다운로드하여 직무 관련성이 있는지 묻습니다."""
-    if not API_KEY:
-        return True # API 키가 없으면 일단 통과시킵니다.
-    
-    try:
-        # 1. 사람인 서버에서 이미지 다운로드
-        res = requests.get(image_url, headers=headers, timeout=10)
-        img = Image.open(BytesIO(res.content))
-        
-        # 2. AI에게 이미지 던지며 질문하기
-        prompt = "이 채용 공고 이미지 안에 '해외영업', '마케팅', '글로벌', '화장품' 직무와 관련된 채용 내용이 포함되어 있나요? 관련된 직무가 하나라도 있다면 'YES', 완전히 무관한 직무(예: 재무, 생산직, IT개발 등)만 있다면 'NO'로만 짧게 대답하세요."
-        
-        response = ai_model.generate_content([prompt, img])
-        result_text = response.text.strip().upper()
-        
-        # 3. YES가 포함되어 있으면 합격
-        return "YES" in result_text
-    except Exception as e:
-        print(f"      ⚠️ 이미지 AI 판독 중 에러 (안전을 위해 수집 유지): {e}")
-        return True
+        print(f"❌ [사람인 봇] 엑셀 읽기 오류: {e}")
+        return []
 
 def deep_crawl_and_filter(url, headers):
-    """링크를 타고 들어가 본문을 읽거나 AI에게 이미지를 판독시킵니다."""
+    """[초고속 버전] 상세 페이지의 본문 텍스트만 초고속 스캔하고, 통이미지면 바로 수동 확인 태그를 달아 토스합니다."""
     try:
-        time.sleep(3) # 🚨 IP 차단 방지를 위한 3초 휴식 (매우 중요)
-        res = requests.get(url, headers=headers, timeout=10)
+        time.sleep(0.5) # IP 차단 방지를 위한 최소한의 안전장치
+        res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, "html.parser")
         
-        # 사람인은 상세 공고를 iframe(유리 상자) 안에 숨겨둡니다.
+        # 사람인 상세 공고 iframe 추출
         iframe = soup.select_one("iframe#iframe_content_0")
         if iframe and iframe.has_attr("src"):
             iframe_src = iframe["src"]
             if not iframe_src.startswith("http"):
                 iframe_src = "https://www.saramin.co.kr" + iframe_src
                 
-            time.sleep(1) # iframe 안으로 들어갈 때 1초 휴식
-            iframe_res = requests.get(iframe_src, headers=headers, timeout=10)
+            iframe_res = requests.get(iframe_src, headers=headers, timeout=5)
             iframe_soup = BeautifulSoup(iframe_res.text, "html.parser")
             
-            # 1. 텍스트 추출 시도
+            # 본문 텍스트 추출
             text_content = iframe_soup.get_text(strip=True)
             
-            if len(text_content) > 200:
-                # 텍스트가 충분히 길면(일반 공고) 키워드로 검사
-                if any(kw.lower() in text_content.lower() for kw in TARGET_KEYWORDS):
-                    return True, "텍스트 매칭 (적합)"
+            if len(text_content) > 150:
+                # 글자가 충분하면 직무 키워드 2차 매칭
+                if any(kw.lower() in text_content.lower() for kw in JOB_KEYWORDS):
+                    return True, "본문 텍스트 매칭 성공"
                 else:
-                    return False, "텍스트 매칭 (직무 불일치)"
+                    return False, "직무 불일치 (본문 내용 무관)"
             else:
-                # 2. 텍스트가 너무 짧으면(이미지 공고) AI 이미지 판독 가동
-                imgs = iframe_soup.select("img")
-                if imgs:
-                    for img in imgs:
-                        img_src = img.get("src")
-                        if img_src and img_src.startswith("http"):
-                            print(f"   -> 🖼️ 텍스트 부족. AI 시각 모델 이미지 판독 시작...")
-                            is_relevant = check_image_with_ai(img_src, headers)
-                            if is_relevant:
-                                return True, "AI 판독 결과 (YES - 타겟 직무 포함)"
-                            else:
-                                return False, "AI 판독 결과 (NO - 직무 불일치)"
+                # 🔥 [기획 반영] 글자가 없고 통이미지인 경우 무거운 AI 없이 바로 합격 처리하여 토스!
+                return True, "통이미지 공고 (★수동 링크 확인 필요)"
                 
         return True, "상세내용 파악 불가 (수동 확인 요망)"
         
     except Exception as e:
-        print(f"   -> ⚠️ 상세 크롤링 실패 (스킵): {e}")
-        return False, "에러"
+        print(f"   -> ⚠️ 상세 크롤링 에러 (안전을 위해 패스): {e}")
+        return True, "상세페이지 에러 (수동 확인)"
 
 def scrape_saramin_target_only():
-    """타겟 기업만 정밀 검색하는 메인 함수"""
-    print("🤖 [사람인 봇] 스마트 딥 크롤링 업무를 시작합니다...")
+    """기업 분류별 키워드를 적용하여 사람인의 모든 타겟 기업을 초고속 스캔하는 메인 함수"""
+    print("🤖 [사람인 봇] 모든 타겟 기업 검색 + 초고속 딥 크롤링 가동...")
     results = []
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
-    target_companies = load_target_companies()
-    if not target_companies:
+    companies_list = load_target_companies()
+    if not companies_list:
         return
         
-    for company in target_companies:
-        print(f"\n🎯 타겟 기업 검색 중: [{company}]")
-        url = f"https://www.saramin.co.kr/zf_user/search/recruit?searchword={company}"
-        time.sleep(2) # 검색 페이지 호출 전 휴식
+    for item in companies_list:
+        company_name = item["name"]
+        company_type = item["type"] # '국내' 또는 '외국'
+        
+        # 사람인 검색은 국내/외국계 전체 리스트를 누락 없이 '전부' 검색합니다!
+        if "외국" in company_type:
+            title_keywords = GLOBAL_TITLE_KEYWORDS
+            type_tag = "외국기업"
+        else:
+            title_keywords = KR_TITLE_KEYWORDS
+            type_tag = "국내기업"
+            
+        print(f"🎯 타겟 기업 스캔: [{company_name}] ({type_tag})")
+        url = f"https://www.saramin.co.kr/zf_user/search/recruit?searchword={company_name}"
         
         try:
-            res = requests.get(url, headers=headers, timeout=10)
+            res = requests.get(url, headers=headers, timeout=5)
             soup = BeautifulSoup(res.text, "html.parser")
             job_listings = soup.select(".item_recruit")
             
-            # 각 기업당 최신 3개만 딥 크롤링 (차단 방지 및 속도 조절)
-            for item in job_listings[:3]:
-                title_el = item.select_one(".job_tit a")
-                if title_el:
+            for listing in job_listings[:5]:  # 기업당 최신 공고 5개 검사
+                title_el = listing.select_one(".job_tit a")
+                corp_el = listing.select_one(".corp_name a")
+                
+                if title_el and corp_el:
                     title = title_el.get_text(strip=True)
+                    corp = corp_el.get_text(strip=True)
+                    
+                    # 1. 철저한 기업명 일치 여부 방어막 (추천 공고 방지)
+                    company_clean = company_name.replace(" ", "").lower()
+                    corp_clean = corp.replace(" ", "").lower()
+                    if company_clean not in corp_clean and corp_clean not in company_clean:
+                        continue 
+                    
+                    # 2. 🔥 국내/외국 분류별 제목 키워드 1차 필터링
+                    # 제목에 지정된 직무 키워드가 단 하나도 없다면 상세 링크를 열지도 않고 0초 만에 스킵!
+                    if not any(kw.lower() in title.lower() for kw in title_keywords):
+                        continue
+                        
                     link = "https://www.saramin.co.kr" + title_el["href"]
+                    print(f"  └ ⚡ 제목 필터 통과 (상세 검사 진입): {title}")
                     
-                    print(f" └ 발견된 공고: {title}")
-                    
-                    # 🚀 [핵심] 링크를 열고 들어가 딥 크롤링 및 AI 필터링 수행
+                    # 3. 본문 검사 및 이미지 패스 필터링 진입
                     is_pass, reason = deep_crawl_and_filter(link, headers)
                     
                     if is_pass:
-                        print(f"    ✅ 수집 통과: {reason}")
                         results.append({
                             "site": "사람인",
-                            "company": company,
+                            "company": corp,
                             "title": title,
                             "url": link,
-                            "info": f"[★타겟기업] {reason}"
+                            "info": f"[★타겟기업-{type_tag}] {reason}"
                         })
-                    else:
-                        print(f"    🗑️ 수집 거절: {reason}")
                         
         except Exception as e:
-            print(f"⚠️ {company} 검색 중 에러 발생: {e}")
+            print(f"⚠️ {company_name} 검색 중 에러 발생: {e}")
 
-    # 최종 결과물 바구니(JSON)에 저장
+    # 바구니(JSON)에 결과 저장
     output_file = os.path.join(current_dir, "saramin_raw.json")
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=4)
         
-    print(f"\n✅ [사람인 봇] 딥 크롤링 완료! 총 {len(results)}건의 '진짜' 공고가 수집되었습니다.")
+    print(f"✅ [사람인 봇] 스캔 완료! 총 {len(results)}건의 맞춤 공고 수집됨.")
 
 if __name__ == "__main__":
     scrape_saramin_target_only()
