@@ -1,18 +1,22 @@
 name: daily-job-bot
 
-# 매일 아침 08:00 KST (= 23:00 UTC 전날) 자동 실행 + 수동 실행 버튼
 on:
   schedule:
-    - cron: "0 23 * * *"      # UTC 기준. 08:00 KST = 23:00 UTC. 시간 바꾸려면 여기 수정.
-  workflow_dispatch:           # Actions 탭에서 수동 실행 가능
+    - cron: "0 23 * * *"      # 08:00 KST (= 23:00 UTC). 시간 바꾸려면 여기만 수정.
+  workflow_dispatch:
 
-# 실행 후 갱신된 CSV/기록 파일을 저장소에 되커밋하기 위해 쓰기 권한 필요
 permissions:
   contents: write
 
 jobs:
   run:
     runs-on: ubuntu-latest
+
+    # ★ 모든 run 스텝을 .github/workflows 폴더에서 실행 (파일들이 거기 있으므로)
+    defaults:
+      run:
+        working-directory: .github/workflows
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,12 +39,15 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
         run: python run_daily.py
 
-      - name: Commit updated data (누적/기록 상태 유지)
+      - name: Commit updated data
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "daily update $(date +'%Y-%m-%d')" || echo "변경 없음"
+          git commit -m "daily update" || echo "변경 없음"
           git push
