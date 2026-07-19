@@ -10,7 +10,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# 🔥 [지시 반영] 통합 핵심 키워드 및 조합용 서픽스
 CORE_KEYWORDS = ["마케팅", "해외영업", "신입", "공채", "글로벌", "marketing", "MD", "브랜드"]
 SEARCH_SUFFIXES = ["마케팅", "해외영업", "MD", "브랜드", "글로벌"]
 
@@ -26,7 +25,7 @@ def load_target_companies():
 
 def deep_crawl_and_filter(url, headers):
     try:
-        time.sleep(0.5)
+        time.sleep(0.4)
         res = requests.get(url, headers=headers, timeout=5)
         soup = BeautifulSoup(res.text, "html.parser")
         iframe = soup.select_one("iframe#gib_frame")
@@ -45,52 +44,58 @@ def deep_crawl_and_filter(url, headers):
         return True, f"상세페이지 분석 제한: {e}"
 
 def scrape_jobkorea_target_only():
-    print("🤖 [잡코리아 봇] 8대 통일 키워드 + 유료광고 우회 검색 시작...")
+    print("🤖 [잡코리아 봇] 사각지대 제로 ➔ 3페이지까지 연속 추적 딥 스캔 시작...")
     results = []
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, fill Gecko) Chrome/120.0.0.0 Safari/537.36"}
     companies = load_target_companies()
     
     for company_name in companies:
         for suffix in SEARCH_SUFFIXES:
             combined_keyword = f"{company_name} {suffix}"
-            print(f"🎯 잡코리아 조합 정밀 검색: [{combined_keyword}]")
-            url = f"https://www.jobkorea.co.kr/Search/?stext={combined_keyword}"
             
-            try:
-                res = requests.get(url, headers=headers, timeout=5)
-                soup = BeautifulSoup(res.text, "html.parser")
-                job_listings = soup.select(".list-default .list-post") or soup.select(".list-post")
+            # 🔥 [기획 반영] 잡코리아도 3페이지까지 숨은 공고 추적 루프 가동
+            for page in range(1, 4):
+                print(f"🎯 잡코리아 추적: [{combined_keyword}] -> {page}페이지 스캔 중...")
+                url = f"https://www.jobkorea.co.kr/Search/?stext={combined_keyword}&page={page}"
                 
-                for listing in job_listings[:5]:
-                    if listing.select_one(".gif-pay") or "list-banner" in str(listing.get("class", [])): continue
-                        
-                    title_el = listing.select_one(".post-list-info a") or listing.select_one(".title a")
-                    corp_el = listing.select_one(".corp-name a") or listing.select_one(".name a")
+                try:
+                    res = requests.get(url, headers=headers, timeout=5)
+                    soup = BeautifulSoup(res.text, "html.parser")
+                    job_listings = soup.select(".list-default .list-post") or soup.select(".list-post")
                     
-                    if title_el and corp_el:
-                        title = title_el.get_text(strip=True)
-                        corp = corp_el.get_text(strip=True)
+                    if not job_listings:
+                        break
                         
-                        company_clean = company_name.replace(" ", "").lower()
-                        corp_clean = corp.replace(" ", "").lower()
-                        if company_clean not in corp_clean and corp_clean not in company_clean: continue 
-                        if not any(kw.lower() in title.lower() for kw in CORE_KEYWORDS): continue
+                    for listing in job_listings:
+                        if listing.select_one(".gif-pay") or "list-banner" in str(listing.get("class", [])): continue
                             
-                        link = title_el["href"]
-                        if not link.startswith("http"): link = "https://www.jobkorea.co.kr" + link
+                        title_el = listing.select_one(".post-list-info a") or listing.select_one(".title a")
+                        corp_el = listing.select_one(".corp-name a") or listing.select_one(".name a")
+                        
+                        if title_el and corp_el:
+                            title = title_el.get_text(strip=True)
+                            corp = corp_el.get_text(strip=True)
                             
-                        print(f"  └ ⚡ 광고 우회 일반 공고 확인: {title} ({corp})")
-                        is_pass, reason = deep_crawl_and_filter(link, headers)
-                        if is_pass:
-                            results.append({"site": "잡코리아", "company": corp, "title": title, "url": link, "info": f"[타겟기업] {reason}"})
-            except Exception as e:
-                print(f"⚠️ {combined_keyword} 검색 에러: {e}")
-            time.sleep(0.3)
+                            company_clean = company_name.replace(" ", "").lower()
+                            corp_clean = corp.replace(" ", "").lower()
+                            if company_clean not in corp_clean and corp_clean not in company_clean: continue 
+                            if not any(kw.lower() in title.lower() for kw in CORE_KEYWORDS): continue
+                                
+                            link = title_el["href"]
+                            if not link.startswith("http"): link = "https://www.jobkorea.co.kr" + link
+                                
+                            print(f"  └ ⚡ 일반 공고 확인: {title} ({corp})")
+                            is_pass, reason = deep_crawl_and_filter(link, headers)
+                            if is_pass:
+                                results.append({"site": "잡코리아", "company": corp, "title": title, "url": link, "info": f"[타겟기업-P{page}] {reason}"})
+                except Exception as e:
+                    print(f"⚠️ {combined_keyword} P{page} 검색 에러: {e}")
+                time.sleep(0.3)
 
     unique_results = {res["url"]: res for res in results}.values()
     with open(os.path.join(current_dir, "jobkorea_raw.json"), "w", encoding="utf-8") as f:
         json.dump(list(unique_results), f, ensure_ascii=False, indent=4)
-    print(f"✅ [잡코리아 봇] 완료! 총 {len(unique_results)}건 수집.")
+    print(f"✅ [잡코리아 봇] 완료! 뒷장 공고 포함 총 {len(unique_results)}건 완벽 수집.")
 
 if __name__ == "__main__":
     scrape_jobkorea_target_only()
