@@ -12,10 +12,10 @@ jobs:
   run:
     runs-on: ubuntu-latest
 
-    # ★ 모든 run 스텝을 .github/workflows 폴더에서 실행 (파일들이 거기 있으므로)
+    # ★ 모든 run 스텝을 .github/job.bot 폴더에서 실행
     defaults:
       run:
-        working-directory: .github/workflows
+        working-directory: .github/job.bot
 
     steps:
       - name: Checkout
