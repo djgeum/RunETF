@@ -1,0 +1,9 @@
+requests
+beautifulsoup4
+lxml
+openpyxl
+xlrd
+playwright
+google-genai
+google-api-python-client
+google-auth
