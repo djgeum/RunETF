@@ -11,6 +11,9 @@
 # =====================================================================
 
 [KEEP]
+해외영업
+Global sales
+Global Marketing
 마케팅
 마케터
 marketing
@@ -22,11 +25,7 @@ sales
 해외
 글로벌
 global
-무역
-수출
-trade
 이커머스
-커머스
 commerce
 ecommerce
 MD
@@ -145,9 +144,6 @@ Retail
 책임
 수석
 Senior
-Lead
-Principal
-Head
 Director
 생산기술
 반도체
@@ -277,7 +273,8 @@ Engineer
 계약직
 아르바이트
 임시직
-
+어시스턴트
+어시스트
 # --- 필요하면 아래처럼 원치 않는 세부직무를 추가하세요 (예시, 기본 비활성) ---
 # 파견
 # 도급
