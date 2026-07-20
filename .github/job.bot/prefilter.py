@@ -16,6 +16,7 @@ import csv
 
 WORDS_FILE = "filter_words.txt"
 TITLE_COL = "공고제목"
+CANDIDATES_CSV = "prefiltered.csv"        # 제목필터 통과 목록(=Gemini 판정 대상) 저장 파일
 
 
 def load_filter_words(path=WORDS_FILE):
@@ -60,6 +61,25 @@ def filter_rows(rows, path=WORDS_FILE, title_col=TITLE_COL):
     print(f"[제목필터] {len(rows)}건 → {len(out)}건 통과 "
           f"(KEEP {len(keep)}단어 / DROP {len(drop)}단어)")
     return out
+
+
+def save_candidates(rows, path=CANDIDATES_CSV):
+    """제목필터를 통과한 목록(=Gemini 판정 대상)을 CSV로 저장(검토용)."""
+    # 사이트마다 컬럼이 조금 달라서, 등장하는 모든 키를 합쳐 헤더로 사용
+    keys = []
+    for r in rows:
+        for k in r.keys():
+            if k not in keys:
+                keys.append(k)
+    if not keys:
+        keys = ["출처", "공고ID", "기업명", "공고제목", "공고링크"]
+    with open(path, "w", encoding="utf-8-sig", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=keys)
+        writer.writeheader()
+        for r in rows:
+            writer.writerow(r)
+    print(f"[제목필터] 통과 목록 저장: {path} ({len(rows)}건)")
+    return path
 
 
 # ===========================================================================
