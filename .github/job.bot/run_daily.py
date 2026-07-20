@@ -57,7 +57,11 @@ def main():
     rows = select_new.get_today_new()
     print(f"\n[신규] 오늘 새로 올라온 미알림 공고: {len(rows)}건")
 
-    if not rows:
+  # 2-2) 제목 규칙 사전필터 (Gemini 호출 전 대량 축소 → 429 방지)
+    import prefilter
+    rows = prefilter.filter_rows(rows)
+
+      if not rows:
         telegram_send.send_report([])          # '오늘 없음' 안내
         print("오늘 신규 없음 → 종료")
         return
