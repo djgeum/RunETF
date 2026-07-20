@@ -6,12 +6,15 @@ run_daily.py
 순서
   1) 수집 봇 3개 + 매칭 스크립트 3개 실행  (RUN_COLLECTORS=True 일 때)
   2) select_new : 오늘 새로 수집됐고 아직 안 보낸 공고만 추림
+  2-2) prefilter : 제목 규칙으로 관련 없는 공고 대량 제외(+통과목록 저장)
   3) ai_filter  : Gemini 로 각 공고 적합성(OK/NO) 판정
   4) telegram_send : OK 공고만 txt 1개로 묶어 텔레그램 전송 (0건이면 '없음' 메시지)
+  4-2) calendar_add : OK 공고 마감일을 구글 캘린더에 등록
   5) 전송/판정한 공고를 notified 기록에 추가 (다음날 중복 방지)
 
 환경변수(로컬/GitHub Secrets):
-    GEMINI_API_KEY, TELEGRAM_BOT_TOKEN(또는 TELEGRAM_TOKEN), TELEGRAM_CHAT_ID
+    GEMINI_API_KEY, TELEGRAM_BOT_TOKEN(또는 TELEGRAM_TOKEN), TELEGRAM_CHAT_ID,
+    GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
 
 실행:
     python run_daily.py
@@ -57,13 +60,14 @@ def main():
     rows = select_new.get_today_new()
     print(f"\n[신규] 오늘 새로 올라온 미알림 공고: {len(rows)}건")
 
-  # 2-2) 제목 규칙 사전필터 (Gemini 호출 전 대량 축소 → 429 방지)
+    # 2-2) 제목 규칙 사전필터 (Gemini 호출 전 대량 축소 → 429 방지)
     import prefilter
     rows = prefilter.filter_rows(rows)
+    prefilter.save_candidates(rows)        # Gemini로 넘어가기 직전 목록 저장(검토용)
 
-      if not rows:
+    if not rows:
         telegram_send.send_report([])          # '오늘 없음' 안내
-        print("오늘 신규 없음 → 종료")
+        print("제목필터 후 대상 없음 → 종료")
         return
 
     # 3) AI 적합성 판정
