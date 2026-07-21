@@ -21,9 +21,6 @@ Global Marketing
 marketing
 브랜드
 brand
-영업
-세일즈
-sales
 해외
 글로벌
 global
@@ -39,9 +36,6 @@ business development
 strategy
 커머셜
 commercial
-PM
-PO
-product
 project
 프로덕트
 프로젝트
