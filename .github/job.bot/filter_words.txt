@@ -11,6 +11,8 @@
 # =====================================================================
 
 [KEEP]
+공채
+신입
 해외영업
 Global sales
 Global Marketing
@@ -29,7 +31,6 @@ global
 commerce
 ecommerce
 MD
-머천다이저
 BD
 사업개발
 business development
@@ -45,15 +46,8 @@ project
 프로덕트
 프로젝트
 customer success
-CS
-그로스
-growth
 퍼포먼스
 CRM
-홍보
-PR
-AE
-광고
 
 [DROP]
 # (KEEP 단어가 있어도) 확실히 원치 않는 '세부직무'만 여기 둡니다.
@@ -134,17 +128,6 @@ Retail
 바리스타
 조리
 홀
-팀장
-파트장
-실장
-센터장
-부장
-차장
-과장
-책임
-수석
-Senior
-Director
 생산기술
 반도체
 공정기술
@@ -228,8 +211,6 @@ SCM
 수의사
 인사
 총무
-채용
-HR
 임상
 CRA
 CRC
@@ -261,15 +242,9 @@ Retail
 인증
 FAE
 Field
-서비스
 AS
-기술지원
 CS
 Engineer
-생명
-화학
-바이오
-메카트로닉스
 계약직
 아르바이트
 임시직
