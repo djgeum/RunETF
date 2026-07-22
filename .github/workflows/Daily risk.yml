@@ -22,9 +22,11 @@ jobs:
           cache: 'pip'
 
       - name: 📦 패키지 설치
+        working-directory: stock_risk_monitor
         run: pip install -r requirements.txt
 
       - name: 🚀 리스크 분석 실행
+        working-directory: stock_risk_monitor
         env:
           TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_ETF_TOKEN }}
           TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_ETF_CHAT_ID }}
@@ -40,6 +42,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_ETF_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_ETF_CHAT_ID }}
         run: |
+          pip install requests -q
           python - <<'EOF'
           import os, requests
           token   = os.environ["TELEGRAM_BOT_TOKEN"]
