@@ -2,50 +2,57 @@ name: 📊 Daily Stock Risk Monitor
 
 on:
   schedule:
-    # 매일 한국시간 오전 7시 = UTC 22:00 (전날)
-    - cron: '0 22 * * 0-4'   # 일~목 UTC 22시 = 월~금 KST 07시
-  workflow_dispatch:           # GitHub에서 수동 실행 버튼
+    - cron: '0 22 * * 0-4'
+  workflow_dispatch:
 
 jobs:
   run-risk-monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: 📥 코드 체크아웃
         uses: actions/checkout@v4
 
-      - name: 🐍 Python 3.11 설정
+      - name: 🔍 파일 구조 확인
+        run: |
+          echo "===== 레포 루트 ====="
+          ls -la
+          echo ""
+          echo "===== stock_risk_monitor ====="
+          ls -la stock_risk_monitor/ || echo "❌ 폴더 없음"
+
+      - name: 🐍 Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: 'pip'
 
       - name: 📦 패키지 설치
-        run: pip install -r requirements.txt
+        run: |
+          pip install --upgrade pip
+          pip install yfinance fredapi anthropic requests pandas
+
+      - name: 🔑 Secrets 확인
+        env:
+          T1: ${{ secrets.TELEGRAM_ETF_TOKEN }}
+          T2: ${{ secrets.TELEGRAM_ETF_CHAT_ID }}
+          T3: ${{ secrets.FRED_API_KEY }}
+          T4: ${{ secrets.DART_API_KEY }}
+          T5: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          [ -n "$T1" ] && echo "✅ TELEGRAM_ETF_TOKEN"   || echo "❌ TELEGRAM_ETF_TOKEN 없음"
+          [ -n "$T2" ] && echo "✅ TELEGRAM_ETF_CHAT_ID" || echo "❌ TELEGRAM_ETF_CHAT_ID 없음"
+          [ -n "$T3" ] && echo "✅ FRED_API_KEY"         || echo "❌ FRED_API_KEY 없음"
+          [ -n "$T4" ] && echo "✅ DART_API_KEY"         || echo "❌ DART_API_KEY 없음"
+          [ -n "$T5" ] && echo "✅ ANTHROPIC_API_KEY"    || echo "❌ ANTHROPIC_API_KEY 없음"
 
       - name: 🚀 리스크 분석 실행
-        env:
-          TELEGRAM_BOT_TOKEN:  ${{ secrets.TELEGRAM_ETF_TOKEN }}
-          TELEGRAM_CHAT_ID:    ${{ secrets.TELEGRAM_ETF_CHAT_ID }}
-          FRED_API_KEY:        ${{ secrets.FRED_API_KEY }}
-          DART_API_KEY:        ${{ secrets.DART_API_KEY }}
-          ANTHROPIC_API_KEY:   ${{ secrets.ANTHROPIC_API_KEY }}
-          ALERT_ON_RISK:       "true"
-        run: python main.py --now
-
-      - name: ❌ 실패 시 텔레그램 오류 알림
-        if: failure()
+        working-directory: stock_risk_monitor
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_ETF_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_ETF_CHAT_ID }}
-        run: |
-          pip install requests -q
-          python - <<'EOF'
-          import os, requests
-          token   = os.environ["TELEGRAM_BOT_TOKEN"]
-          chat_id = os.environ["TELEGRAM_CHAT_ID"]
-          msg = "⚠️ [리스크 모니터] GitHub Actions 실행 실패\n로그를 확인하세요: https://github.com/${{ github.repository }}/actions"
-          requests.post(f"https://api.telegram.org/bot{token}/sendMessage",
-                        json={"chat_id": chat_id, "text": msg})
-          EOF
+          FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
+          DART_API_KEY:       ${{ secrets.DART_API_KEY }}
+          ANTHROPIC_API_KEY:  ${{ secrets.ANTHROPIC_API_KEY }}
+          ALERT_ON_RISK:      "true"
+        run: python main.py --now
