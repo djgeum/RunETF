@@ -108,81 +108,91 @@ def _parse_customs_xml(content: bytes) -> dict:
     return rows
 
 
-def _customs_call(key, strt, end, cnty=None):
+def _customs_call(key, strt, end, cnty):
+    """관세청 단일 호출 (국가코드 필수)"""
     url = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
     params = {
         "serviceKey": key,
         "strtYymm":   strt,
         "endYymm":    end,
         "hsSgn":      C.KOREA_HS_CODE,
+        "cntyCd":     cnty,
     }
-    if cnty:
-        params["cntyCd"] = cnty
     resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
     return resp.content
 
 
+def _year_periods(now: datetime, years_back: int = 3):
+    """조회기간 1년 제한 대응: 연도별 구간으로 분할"""
+    periods = []
+    for back in range(years_back):
+        y = now.year - back
+        strt = f"{y}01"
+        end  = now.strftime("%Y%m") if back == 0 else f"{y}12"
+        periods.append((strt, end))
+    return periods
+
+
 def fetch_korea_export() -> dict:
     """
     HS 8542(전자집적회로) 월별 수출금액·물량 수집.
-    조회기간이 1년 이내로 제한되므로 연도별로 나눠 호출하고,
-    국가코드 필수 대응으로 전세계(합계) 우선, 실패 시 미국+중국 합산으로 폴백.
+    관세청 API는 전세계 합계를 지원하지 않으므로 주요 수출상대국을
+    개별 조회한 뒤 월별로 합산합니다.
     """
     key = os.environ.get("SARAMIN_KEY", "")  # data.go.kr 키가 이 이름으로 등록됨
     if not key:
-        print("    ✗ SARAMIN_KEY(data.go.kr) 없음 — 확인층 비활성")
-        return {"value": pd.Series(dtype=float), "weight": pd.Series(dtype=float)}
+        print("    x SARAMIN_KEY(data.go.kr) 없음 - 확인층 비활성")
+        return {"value": pd.Series(dtype=float), "weight": pd.Series(dtype=float),
+                "coverage": []}
 
-    now = datetime.now()
-    # 최근 26개월 커버를 위해 3개 연도 구간으로 분할
-    periods = []
-    for yr_back in range(0, 3):
-        y = now.year - yr_back
-        strt = f"{y}01"
-        end  = f"{y}12" if yr_back > 0 else now.strftime("%Y%m")
-        periods.append((strt, end))
+    now      = datetime.now()
+    periods  = _year_periods(now)
+    merged   = {}
+    ok_list, fail_list = [], []
 
-    # 국가코드 후보: 전세계 합계코드 시도 → 실패 시 주요국 개별 합산
-    # (data.go.kr 관세청은 전세계 합계에 'TO' 또는 공란을 쓰는 경우가 있어 순차 시도)
-    country_plans = [None, "TO", "US", "CN"]
-
-    merged = {}
-    used_plan = None
-    for plan in country_plans:
-        got_any = False
-        tmp = {}
+    for cnty in C.KOREA_COUNTRIES:
+        got = False
         for strt, end in periods:
             try:
-                content = _customs_call(key, strt, end, plan)
-                part = _parse_customs_xml(content)
+                content = _customs_call(key, strt, end, cnty)
+                part    = _parse_customs_xml(content)
+                for ym, d in part.items():
+                    if ym not in merged:
+                        merged[ym] = {"value": 0.0, "weight": 0.0}
+                    merged[ym]["value"]  += d["value"]
+                    merged[ym]["weight"] += d["weight"]
                 if part:
-                    got_any = True
-                    for ym, d in part.items():
-                        if ym not in tmp:
-                            tmp[ym] = {"value": 0.0, "weight": 0.0}
-                        tmp[ym]["value"]  += d["value"]
-                        tmp[ym]["weight"] += d["weight"]
-                time.sleep(0.3)
+                    got = True
             except Exception as e:
-                print(f"    ✗ 관세청 호출 실패 ({strt}-{end}, 국가={plan}): {e}")
-        if got_any:
-            merged = tmp
-            used_plan = plan
-            break
+                print(f"    x 관세청 호출 실패 ({cnty} {strt}-{end}): {e}")
+            time.sleep(C.KOREA_CALL_SLEEP)
+        (ok_list if got else fail_list).append(cnty)
 
-    if not merged:
-        print("    ✗ 관세청: 모든 국가코드 시도 실패")
-        return {"value": pd.Series(dtype=float), "weight": pd.Series(dtype=float)}
+    print(f"    i 수집 성공 {len(ok_list)}개국: {','.join(ok_list)}")
+    if fail_list:
+        print(f"    ! 수집 실패 {len(fail_list)}개국: {','.join(fail_list)}")
 
-    print(f"    ℹ️ 관세청 조회 국가코드: {used_plan or '(공란=전세계)'}")
+    if not merged or len(fail_list) > C.KOREA_MAX_FAIL:
+        print("    x 관세청: 유효 데이터 부족 - 확인층 비활성")
+        return {"value": pd.Series(dtype=float), "weight": pd.Series(dtype=float),
+                "coverage": ok_list}
+
     vs = pd.Series({k: v["value"]  for k, v in merged.items()}).sort_index()
     ws = pd.Series({k: v["weight"] for k, v in merged.items()}).sort_index()
     vs = vs[vs > 0]
     ws = ws[ws > 0]
+
+    # 최신월은 집계 진행중일 수 있어 직전월 대비 급감하면 제외
+    if len(vs) >= 2 and vs.iloc[-1] < vs.iloc[-2] * 0.5:
+        dropped = vs.index[-1]
+        print(f"    ! 최신월 {dropped} 집계 미완료로 판단하여 제외")
+        vs = vs.iloc[:-1]
+        ws = ws[ws.index != dropped]
+
     _log(vs, "반도체 수출금액")
     _log(ws, "반도체 수출물량")
-    return {"value": vs, "weight": ws}
+    return {"value": vs, "weight": ws, "coverage": ok_list}
 
 
 # ══════════════════════════════════════════════
@@ -200,5 +210,6 @@ def collect_all() -> dict:
         "hy": fred["hy"], "us10y": fred["us10y"],
         "spy": mkt["spy"], "rsp": mkt["rsp"], "sox": mkt["sox"], "dxy": mkt["dxy"],
         "kr_value": kr["value"], "kr_weight": kr["weight"],
+        "kr_coverage": kr.get("coverage", []),
         "collected_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
