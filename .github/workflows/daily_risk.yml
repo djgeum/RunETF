@@ -1,78 +1,86 @@
-name: 📊 Daily Stock Risk Monitor
+name: 📊 Daily US Market Risk Monitor
 
 on:
   schedule:
-    # 월~금 한국시간 오전 7시 (UTC 전날 22:00)
-    - cron: '0 22 * * 0-4'
+    # 화~토 한국시간 오전 7시 (UTC 전날 22:00)
+    # 미국 장 마감(월~금)을 반영하려면 다음날 아침에 발송
+    - cron: '0 22 * * 1-5'
   workflow_dispatch:
+
+permissions:
+  contents: write        # risk_state.json 커밋에 필요
 
 jobs:
   run-risk-monitor:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
-      - name: 📥 코드 체크아웃
+      - name: 📥 체크아웃
         uses: actions/checkout@v4
-
-      - name: 🔍 파일 구조 확인
-        run: |
-          echo "===== 레포 루트 ====="
-          ls -la
-          echo ""
-          echo "===== stock_risk_monitor ====="
-          ls -la stock_risk_monitor/ || echo "❌ 폴더 없음"
 
       - name: 🐍 Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: 📦 패키지 설치
+        working-directory: stock_risk_monitor
         run: |
           pip install --upgrade pip
-          pip install yfinance fredapi requests pandas
+          pip install -r requirements.txt
 
       - name: 🔑 Secrets 확인
         env:
           T1: ${{ secrets.TELEGRAM_ETF_TOKEN }}
           T2: ${{ secrets.TELEGRAM_ETF_CHAT_ID }}
           T3: ${{ secrets.FRED_API_KEY }}
-          T4: ${{ secrets.DART_API_KEY }}
+          T4: ${{ secrets.SARAMIN_KEY }}
           T5: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          [ -n "$T1" ] && echo "✅ TELEGRAM_ETF_TOKEN"   || echo "❌ TELEGRAM_ETF_TOKEN 없음"
-          [ -n "$T2" ] && echo "✅ TELEGRAM_ETF_CHAT_ID" || echo "❌ TELEGRAM_ETF_CHAT_ID 없음"
-          [ -n "$T3" ] && echo "✅ FRED_API_KEY"         || echo "❌ FRED_API_KEY 없음"
-          [ -n "$T4" ] && echo "✅ DART_API_KEY"         || echo "❌ DART_API_KEY 없음"
-          [ -n "$T5" ] && echo "✅ GEMINI_API_KEY"       || echo "❌ GEMINI_API_KEY 없음"
+          [ -n "$T1" ] && echo "OK TELEGRAM_ETF_TOKEN"   || echo "MISSING TELEGRAM_ETF_TOKEN"
+          [ -n "$T2" ] && echo "OK TELEGRAM_ETF_CHAT_ID" || echo "MISSING TELEGRAM_ETF_CHAT_ID"
+          [ -n "$T3" ] && echo "OK FRED_API_KEY"         || echo "MISSING FRED_API_KEY"
+          [ -n "$T4" ] && echo "OK SARAMIN_KEY(datago)"  || echo "MISSING SARAMIN_KEY"
+          [ -n "$T5" ] && echo "OK GEMINI_API_KEY"       || echo "MISSING GEMINI_API_KEY (뉴스 요약만 생략됨)"
 
-      - name: 🚀 리스크 분석 실행
+      - name: 🚀 리스크 판정 및 발송
         working-directory: stock_risk_monitor
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_ETF_TOKEN }}
           TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_ETF_CHAT_ID }}
           FRED_API_KEY:       ${{ secrets.FRED_API_KEY }}
-          DART_API_KEY:       ${{ secrets.DART_API_KEY }}
+          SARAMIN_KEY:        ${{ secrets.SARAMIN_KEY }}
           GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL:       "gemini-3.5-flash"
-          ALERT_ON_RISK:      "true"
         run: python main.py --now
 
-      - name: ❌ 실패 시 텔레그램 알림
+      - name: 💾 상태 파일 커밋
+        if: always()
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add stock_risk_monitor/data/risk_state.json
+          if git diff --staged --quiet; then
+            echo "상태 변경 없음"
+          else
+            git commit -m "chore: 리스크 상태 갱신 $(date -u +%Y-%m-%d)"
+            git pull --rebase --autostash origin ${{ github.ref_name }} || true
+            git push
+          fi
+
+      - name: ❌ 실패 알림
         if: failure()
         env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_ETF_TOKEN }}
-          TELEGRAM_CHAT_ID:   ${{ secrets.TELEGRAM_ETF_CHAT_ID }}
-          REPO:               ${{ github.repository }}
+          TG_TOKEN: ${{ secrets.TELEGRAM_ETF_TOKEN }}
+          TG_CHAT:  ${{ secrets.TELEGRAM_ETF_CHAT_ID }}
+          REPO:     ${{ github.repository }}
         run: |
           pip install requests -q
           python -c "
           import os, requests
-          token = os.environ['TELEGRAM_BOT_TOKEN']
-          chat  = os.environ['TELEGRAM_CHAT_ID']
-          repo  = os.environ['REPO']
-          msg   = f'⚠️ 리스크 모니터 실행 실패\nhttps://github.com/{repo}/actions'
-          requests.post(f'https://api.telegram.org/bot{token}/sendMessage',
-                        json={'chat_id': chat, 'text': msg})
+          requests.post('https://api.telegram.org/bot%s/sendMessage' % os.environ['TG_TOKEN'],
+            json={'chat_id': os.environ['TG_CHAT'],
+                  'text': '리스크 모니터 실행 실패\nhttps://github.com/%s/actions' % os.environ['REPO']})
           "
