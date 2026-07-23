@@ -99,11 +99,14 @@ def build_message(verdict, data, news="") -> str:
 
     # 확인층
     L.append("━━ 확인 · 한국 반도체 수출 ━━")
-    cov = data.get("kr_coverage", [])
+    cov  = data.get("kr_coverage", [])
+    note = data.get("kr_note", "")
+    hs   = data.get("kr_hs", "")
+    hs_label = {"854232": "메모리", "854231": "프로세서", "8542": "반도체전체"}.get(hs, hs)
     if cov:
-        L.append(f"수집 {len(cov)}개국: {','.join(cov)}")
+        L.append(f"HS {hs}({hs_label}) · {len(cov)}개국: {','.join(cov)}")
     else:
-        L.append("수집 실패 — 확인층 비활성")
+        L.append(f"수집 실패 — 확인층 비활성{(' (' + note + ')') if note else ''}")
     for s in verdict.kr_signals:
         L.append(_line(s))
     L.append("")

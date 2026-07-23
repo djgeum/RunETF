@@ -109,7 +109,7 @@ def _parse_customs_xml(content: bytes) -> dict:
     return rows
 
 
-def _customs_call(key, strt, end, cnty, scheme="https"):
+def _customs_call(key, strt, end, cnty, scheme="https", hs=None):
     """
     관세청 단일 호출.
     data.go.kr 인증키는 Encoding/Decoding 두 종류가 배포되는데,
@@ -121,7 +121,7 @@ def _customs_call(key, strt, end, cnty, scheme="https"):
         "serviceKey": unquote(key),
         "strtYymm":   strt,
         "endYymm":    end,
-        "hsSgn":      C.KOREA_HS_CODE,
+        "hsSgn":      hs or C.KOREA_HS_CODE,
         "cntyCd":     cnty,
     }
     resp = requests.get(url, params=params, timeout=30)
@@ -206,25 +206,39 @@ def fetch_korea_export() -> dict:
     periods = _year_periods(now)
 
     # ── 사전 점검: 첫 호출로 https/http 및 응답 형식 확인 ──
-    scheme = "https"
+    scheme   = "https"
+    hs_used  = C.KOREA_HS_CODE
     probe_ok = False
     probe_msg = ""
-    for sch in ("https", "http"):
-        try:
-            content = _customs_call(key, periods[0][0], periods[0][1],
-                                    C.KOREA_COUNTRIES[0], sch)
-            diag  = _diagnose_response(content)
-            parsed = _parse_customs_xml(content)
-            if parsed:
-                scheme, probe_ok = sch, True
-                sample = sorted(parsed.items())[-1]
-                print(f"    i 관세청 접속 확인 ({sch}) | {diag}")
-                print(f"      샘플: {C.KOREA_COUNTRIES[0]} {sample[0]} "
-                      f"수출 ${sample[1]['value']:,.0f} / {sample[1]['weight']:,.0f}kg")
-                break
-            probe_msg = f"{diag} | item {content.count(b'<item>')}개 (유효 월데이터 0)"
-        except Exception as e:
-            probe_msg = f"{sch} 예외: {e}"
+    hs_candidates = [C.KOREA_HS_CODE]
+    if getattr(C, "KOREA_HS_FALLBACK", None):
+        hs_candidates.append(C.KOREA_HS_FALLBACK)
+
+    for hs in hs_candidates:
+        for sch in ("https", "http"):
+            try:
+                content = _customs_call(key, periods[0][0], periods[0][1],
+                                        C.KOREA_COUNTRIES[0], sch, hs)
+                diag   = _diagnose_response(content)
+                parsed = _parse_customs_xml(content)
+                if parsed:
+                    scheme, hs_used, probe_ok = sch, hs, True
+                    sample = sorted(parsed.items())[-1]
+                    print(f"    i 관세청 접속 확인 ({sch}) HS={hs} | {diag}")
+                    print(f"      샘플: {C.KOREA_COUNTRIES[0]} {sample[0]} "
+                          f"수출 ${sample[1]['value']:,.0f} / "
+                          f"{sample[1]['weight']:,.0f}kg "
+                          f"(단가 ${sample[1]['value']/sample[1]['weight']:,.0f}/kg)"
+                          if sample[1]['weight'] else "")
+                    break
+                probe_msg = f"HS={hs} {diag} | item {content.count(b'<item>')}개 (유효 월데이터 0)"
+            except Exception as e:
+                probe_msg = f"HS={hs} {sch} 예외: {e}"
+        if probe_ok:
+            break
+
+    if hs_used != C.KOREA_HS_CODE:
+        print(f"    ! 주 코드({C.KOREA_HS_CODE}) 데이터 없음 → 폴백 {hs_used} 사용")
 
     if not probe_ok:
         print(f"    x 관세청 사전 점검 실패 - {probe_msg}")
@@ -242,7 +256,7 @@ def fetch_korea_export() -> dict:
         got = False
         for strt, end in periods:
             try:
-                content = _customs_call(key, strt, end, cnty, scheme)
+                content = _customs_call(key, strt, end, cnty, scheme, hs_used)
                 part    = _parse_customs_xml(content)
                 for ym, d in part.items():
                     if ym not in merged:
@@ -280,7 +294,8 @@ def fetch_korea_export() -> dict:
 
     _log(vs, "반도체 수출금액")
     _log(ws, "반도체 수출물량")
-    return {"value": vs, "weight": ws, "coverage": ok_list, "note": ""}
+    return {"value": vs, "weight": ws, "coverage": ok_list,
+            "note": "", "hs": hs_used}
 
 
 # ══════════════════════════════════════════════
@@ -300,5 +315,6 @@ def collect_all() -> dict:
         "kr_value": kr["value"], "kr_weight": kr["weight"],
         "kr_coverage": kr.get("coverage", []),
         "kr_note": kr.get("note", ""),
+        "kr_hs": kr.get("hs", ""),
         "collected_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
