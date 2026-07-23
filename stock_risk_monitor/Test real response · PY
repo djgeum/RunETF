@@ -1,0 +1,77 @@
+"""실제 관세청 응답 형식으로 파서 검증"""
+import sources
+
+# 사용자가 받은 실제 응답 그대로
+REAL = b'''<response>
+<script/>
+<header>
+<resultCode>00</resultCode>
+<resultMsg>\xec\xa0\x95\xec\x83\x81\xec\x84\x9c\xeb\xb9\x84\xec\x8a\xa4.</resultMsg>
+</header>
+<body>
+<items>
+<item>
+<balPayments>-298441</balPayments>
+<expDlr>154</expDlr>
+<expWgt>20</expWgt>
+<hsCd>-</hsCd>
+<impDlr>298595</impDlr>
+<impWgt>1035049</impWgt>
+<statCd>-</statCd>
+<statCdCntnKor1>-</statCdCntnKor1>
+<statKor>-</statKor>
+<year>\xec\xb4\x9d\xea\xb3\x84</year>
+</item>
+<item>
+<balPayments>-298441</balPayments>
+<expDlr>154</expDlr>
+<expWgt>20</expWgt>
+<hsCd>1001999090</hsCd>
+<impDlr>298595</impDlr>
+<impWgt>1035049</impWgt>
+<statCd>US</statCd>
+<statCdCntnKor1>\xeb\xaf\xb8\xea\xb5\xad</statCdCntnKor1>
+<statKor>\xea\xb8\xb0\xed\x83\x80</statKor>
+<year>2016.01</year>
+</item>
+</items>
+</body>
+</response>'''
+
+PASS = 0
+def check(name, cond):
+    global PASS
+    assert cond, f"❌ {name}"
+    PASS += 1
+    print(f"✅ {name}")
+
+print("="*58)
+print("실제 응답 파싱 검증")
+print("="*58)
+
+p = sources._parse_customs_xml(REAL)
+print("파싱 결과:", p)
+print()
+
+check("<script/> 태그 있어도 파싱 성공", len(p) > 0)
+check("총계 행 제외됨 (1건만 남음)", len(p) == 1)
+check("2016.01 → 2016-01 변환", "2016-01" in p)
+check("총계 이중계상 없음 (expDlr 154, 308 아님)", p["2016-01"]["value"] == 154.0)
+check("중량 정상", p["2016-01"]["weight"] == 20.0)
+
+# 오류코드 해설
+print()
+print("resultCode 00 해설:", sources._diagnose_response(REAL))
+
+# 여러 달 + 총계 섞인 경우
+MULTI = b'''<response><header><resultCode>00</resultCode></header><body><items>
+<item><year>\xec\xb4\x9d\xea\xb3\x84</year><expDlr>3000</expDlr><expWgt>30</expWgt></item>
+<item><year>2026.04</year><expDlr>1000</expDlr><expWgt>10</expWgt></item>
+<item><year>2026.05</year><expDlr>1000</expDlr><expWgt>10</expWgt></item>
+<item><year>2026.06</year><expDlr>1000</expDlr><expWgt>10</expWgt></item>
+</items></body></response>'''
+p2 = sources._parse_customs_xml(MULTI)
+check("3개월 + 총계 → 3건만", len(p2) == 3)
+check("합계행 제외 확인", sum(v["value"] for v in p2.values()) == 3000.0)
+
+print(f"\n🎉 {PASS}개 통과 — 파서가 실제 응답을 정확히 처리합니다")
