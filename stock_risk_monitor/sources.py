@@ -9,6 +9,7 @@ import os
 import time
 import warnings
 import xml.etree.ElementTree as ET
+from urllib.parse import unquote
 from datetime import datetime, timedelta
 
 import requests
@@ -108,11 +109,16 @@ def _parse_customs_xml(content: bytes) -> dict:
     return rows
 
 
-def _customs_call(key, strt, end, cnty):
-    """관세청 단일 호출 (국가코드 필수)"""
-    url = "https://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
+def _customs_call(key, strt, end, cnty, scheme="https"):
+    """
+    관세청 단일 호출.
+    data.go.kr 인증키는 Encoding/Decoding 두 종류가 배포되는데,
+    Encoding 키를 requests params에 그대로 넣으면 이중 인코딩되어 인증 실패합니다.
+    unquote로 항상 디코딩 형태로 정규화해 전달합니다.
+    """
+    url = f"{scheme}://apis.data.go.kr/1220000/nitemtrade/getNitemtradeList"
     params = {
-        "serviceKey": key,
+        "serviceKey": unquote(key),
         "strtYymm":   strt,
         "endYymm":    end,
         "hsSgn":      C.KOREA_HS_CODE,
@@ -121,6 +127,54 @@ def _customs_call(key, strt, end, cnty):
     resp = requests.get(url, params=params, timeout=30)
     resp.raise_for_status()
     return resp.content
+
+
+# 관세청(제공기관) 응답코드 → 원인 설명
+CUSTOMS_CODE_HINT = {
+    "00": "정상",
+    "01": "서비스 시스템 오류 (제공기관 장애 — 잠시 후 재시도)",
+    "02": "인증키가 파라미터에 없음 (serviceKey 미전달)",
+    "03": "인증키가 올바르지 않음 (Decoding 키 사용 여부 / 활용신청 승인 확인)",
+    "04": "필수 요청변수 누락 (strtYymm, endYymm, cntyCd 확인)",
+}
+
+# 게이트웨이 레벨 오류코드 (data.go.kr 공통)
+GW_CODE_HINT = {
+    "20": "서비스 접근 거부 — 활용신청 미승인 상태",
+    "22": "일일 트래픽 한도 초과",
+    "30": "등록되지 않은 서비스키",
+    "31": "활용기간 만료",
+    "32": "등록되지 않은 IP",
+}
+
+
+def _diagnose_response(content: bytes) -> str:
+    """응답에서 오류 코드/메시지를 뽑아 원인 설명까지 붙여 반환"""
+    text  = content.decode("utf-8", errors="replace")
+    hints = []
+    codes = {}
+
+    for tag in ("resultCode", "resultMsg", "returnReasonCode",
+                "returnAuthMsg", "errMsg"):
+        i = text.find(f"<{tag}>")
+        if i != -1:
+            j = text.find(f"</{tag}>", i)
+            if j != -1:
+                val = text[i + len(tag) + 2:j].strip()[:80]
+                codes[tag] = val
+                hints.append(f"{tag}={val}")
+
+    # 원인 해설 부착
+    rc = codes.get("resultCode", "").zfill(2) if codes.get("resultCode", "").isdigit() else ""
+    if rc in CUSTOMS_CODE_HINT:
+        hints.append(f"→ {CUSTOMS_CODE_HINT[rc]}")
+    gw = codes.get("returnReasonCode", "")
+    if gw in GW_CODE_HINT:
+        hints.append(f"→ {GW_CODE_HINT[gw]}")
+
+    if not hints:
+        hints.append(text[:160].replace("\n", " "))
+    return " | ".join(hints)
 
 
 def _year_periods(now: datetime, years_back: int = 3):
@@ -141,21 +195,54 @@ def fetch_korea_export() -> dict:
     개별 조회한 뒤 월별로 합산합니다.
     """
     key = os.environ.get("SARAMIN_KEY", "")  # data.go.kr 키가 이 이름으로 등록됨
+    empty = {"value": pd.Series(dtype=float), "weight": pd.Series(dtype=float),
+             "coverage": [], "note": ""}
     if not key:
         print("    x SARAMIN_KEY(data.go.kr) 없음 - 확인층 비활성")
-        return {"value": pd.Series(dtype=float), "weight": pd.Series(dtype=float),
-                "coverage": []}
+        empty["note"] = "인증키 미설정"
+        return empty
 
-    now      = datetime.now()
-    periods  = _year_periods(now)
-    merged   = {}
+    now     = datetime.now()
+    periods = _year_periods(now)
+
+    # ── 사전 점검: 첫 호출로 https/http 및 응답 형식 확인 ──
+    scheme = "https"
+    probe_ok = False
+    probe_msg = ""
+    for sch in ("https", "http"):
+        try:
+            content = _customs_call(key, periods[0][0], periods[0][1],
+                                    C.KOREA_COUNTRIES[0], sch)
+            diag  = _diagnose_response(content)
+            parsed = _parse_customs_xml(content)
+            if parsed:
+                scheme, probe_ok = sch, True
+                sample = sorted(parsed.items())[-1]
+                print(f"    i 관세청 접속 확인 ({sch}) | {diag}")
+                print(f"      샘플: {C.KOREA_COUNTRIES[0]} {sample[0]} "
+                      f"수출 ${sample[1]['value']:,.0f} / {sample[1]['weight']:,.0f}kg")
+                break
+            probe_msg = f"{diag} | item {content.count(b'<item>')}개 (유효 월데이터 0)"
+        except Exception as e:
+            probe_msg = f"{sch} 예외: {e}"
+
+    if not probe_ok:
+        print(f"    x 관세청 사전 점검 실패 - {probe_msg}")
+        print("      점검 항목:")
+        print("        1) data.go.kr 마이페이지 > 활용신청 현황 > 처리상태 '승인' 확인")
+        print("        2) 활용기간 시작일이 오늘 이후가 아닌지 확인")
+        print("        3) GitHub Secret 값이 '일반 인증키'와 일치하는지 확인")
+        empty["note"] = probe_msg[:120]
+        return empty
+
+    merged = {}
     ok_list, fail_list = [], []
 
     for cnty in C.KOREA_COUNTRIES:
         got = False
         for strt, end in periods:
             try:
-                content = _customs_call(key, strt, end, cnty)
+                content = _customs_call(key, strt, end, cnty, scheme)
                 part    = _parse_customs_xml(content)
                 for ym, d in part.items():
                     if ym not in merged:
@@ -169,14 +256,15 @@ def fetch_korea_export() -> dict:
             time.sleep(C.KOREA_CALL_SLEEP)
         (ok_list if got else fail_list).append(cnty)
 
-    print(f"    i 수집 성공 {len(ok_list)}개국: {','.join(ok_list)}")
+    print(f"    i 수집 성공 {len(ok_list)}개국: {','.join(ok_list) or '-'}")
     if fail_list:
         print(f"    ! 수집 실패 {len(fail_list)}개국: {','.join(fail_list)}")
 
     if not merged or len(fail_list) > C.KOREA_MAX_FAIL:
         print("    x 관세청: 유효 데이터 부족 - 확인층 비활성")
-        return {"value": pd.Series(dtype=float), "weight": pd.Series(dtype=float),
-                "coverage": ok_list}
+        empty["coverage"] = ok_list
+        empty["note"] = f"수집국 {len(ok_list)}개로 부족"
+        return empty
 
     vs = pd.Series({k: v["value"]  for k, v in merged.items()}).sort_index()
     ws = pd.Series({k: v["weight"] for k, v in merged.items()}).sort_index()
@@ -192,7 +280,7 @@ def fetch_korea_export() -> dict:
 
     _log(vs, "반도체 수출금액")
     _log(ws, "반도체 수출물량")
-    return {"value": vs, "weight": ws, "coverage": ok_list}
+    return {"value": vs, "weight": ws, "coverage": ok_list, "note": ""}
 
 
 # ══════════════════════════════════════════════
@@ -211,5 +299,6 @@ def collect_all() -> dict:
         "spy": mkt["spy"], "rsp": mkt["rsp"], "sox": mkt["sox"], "dxy": mkt["dxy"],
         "kr_value": kr["value"], "kr_weight": kr["weight"],
         "kr_coverage": kr.get("coverage", []),
+        "kr_note": kr.get("note", ""),
         "collected_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
     }
