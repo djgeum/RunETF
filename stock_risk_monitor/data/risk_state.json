@@ -1,8 +1,8 @@
 {
   "level": "정상",
-  "div_miss_days": 9,
-  "macro_miss_days": 9,
+  "div_miss_days": 10,
+  "macro_miss_days": 10,
   "kr_miss_reports": 1,
   "last_kr_month": "2026-06",
-  "updated_at": "2026-07-23 07:19"
+  "updated_at": "2026-07-23 07:32"
 }
