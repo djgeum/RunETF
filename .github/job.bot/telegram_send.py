@@ -26,7 +26,7 @@ from datetime import date
 
 import requests
 
-MSG_DELAY_SEC = 0.4        # 메시지 간 지연(초) - 텔레그램 속도제한 대비
+MSG_DELAY_SEC = 1.0        # 메시지 간 지연(초) - 텔레그램은 채팅당 초당 ~1건 제한
 
 # ===========================================================================
 # 설정 / 자격증명 (환경변수)
@@ -87,19 +87,28 @@ def build_report_txt(rows, path=None, today_str=None):
 # ===========================================================================
 # 텔레그램 전송
 # ===========================================================================
-def send_message(text, parse_mode=None):
-    """짧은 텍스트 메시지 전송."""
+def send_message(text, parse_mode=None, retries=4):
+    """짧은 텍스트 메시지 전송. 429(속도제한)면 retry_after 만큼 대기 후 재시도."""
     data = {"chat_id": _chat_id(), "text": text}
     if parse_mode:
         data["parse_mode"] = parse_mode
-    try:
-        resp = requests.post(_api("sendMessage"), data=data, timeout=20)
-        ok = resp.ok and resp.json().get("ok", False)
-        print(f"[텔레그램] 메시지 전송 {'성공' if ok else '실패'}")
-        return ok
-    except requests.RequestException as e:
-        print(f"[텔레그램] 메시지 전송 오류: {e}")
-        return False
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.post(_api("sendMessage"), data=data, timeout=20)
+            if resp.status_code == 429:                 # Too Many Requests
+                ra = 2
+                try:
+                    ra = int(resp.json().get("parameters", {}).get("retry_after", 2))
+                except Exception:
+                    pass
+                print(f"[텔레그램] 429 속도제한 → {ra}s 대기 후 재시도")
+                time.sleep(ra + 0.5)
+                continue
+            return bool(resp.ok and resp.json().get("ok", False))
+        except requests.RequestException as e:
+            print(f"[텔레그램] 전송 오류(재시도 {attempt}/{retries}): {e}")
+            time.sleep(1.5 * attempt)
+    return False
 
 
 def send_document(path, caption=""):
@@ -135,22 +144,23 @@ def format_job(r):
 
 
 def send_report(rows, today_str=None):
-    """OK 공고를 '하나씩 개별 메시지'로 전송. 0건이면 짧은 메시지로 대체."""
+    """OK 공고를 '하나씩 개별 메시지'로 전송. 전송 성공한 행들의 리스트를 반환.
+       0건이면 '없음' 메시지 후 빈 리스트 반환."""
     today_str = today_str or date.today().isoformat()
     if not rows:
-        return send_message(f"[{today_str}] 오늘 조건에 맞는 새 공고가 없습니다.")
+        send_message(f"[{today_str}] 오늘 조건에 맞는 새 공고가 없습니다.")
+        return []
 
-    # 머리말 1건
-    send_message(f"[{today_str}] 오늘의 추천 채용공고 {len(rows)}건")
+    send_message(f"[{today_str}] 오늘의 추천 채용공고 {len(rows)}건")   # 머리말
     time.sleep(MSG_DELAY_SEC)
 
-    ok = 0
+    sent = []
     for r in rows:
         if send_message(format_job(r)):
-            ok += 1
-        time.sleep(MSG_DELAY_SEC)             # 속도제한 대비 짧은 지연
-    print(f"[텔레그램] 개별 전송 {ok}/{len(rows)}건 성공")
-    return ok > 0
+            sent.append(r)
+        time.sleep(MSG_DELAY_SEC)             # 속도제한 대비 지연
+    print(f"[텔레그램] 개별 전송 {len(sent)}/{len(rows)}건 성공")
+    return sent
 
 
 # ===========================================================================
