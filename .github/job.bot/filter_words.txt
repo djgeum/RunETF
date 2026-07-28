@@ -19,52 +19,12 @@ Global Marketing
 마케팅
 마케터
 marketing
-브랜드
-brand
 해외
 글로벌
 global
-이커머스
-commerce
-ecommerce
-MD
-BD
-사업개발
-business development
-사업기획
-전략
-strategy
-커머셜
-commercial
-project
-프로덕트
-프로젝트
-Business
 Global
 Marketing
-Brand
 Global Marketing
-Project Manager
-Product Manager
-Customer Success
-Global Strategy
-Business Strategy
-Commercial
-Global Operations
-Overseas
-Export
-기획
-전략
-매니저
-Manager
-Coordinator
-Consultant
-Specialist
-Analyst
-Operation
-Planning
-Business
-Project
 
 [DROP]
 # (KEEP 단어가 있어도) 확실히 원치 않는 '세부직무'만 여기 둡니다.
@@ -77,6 +37,7 @@ Project
 방문판매
 텔레마케팅
 텔레마케터
+체험형
 다단계
 상조
 생산
@@ -97,3 +58,4 @@ Project
 # 계약직
 # 아르바이트
 # 임시직
+# 체험형
