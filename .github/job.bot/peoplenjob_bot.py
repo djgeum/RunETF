@@ -34,7 +34,7 @@ from playwright.sync_api import sync_playwright
 BASE = "https://www.peoplenjob.com"
  
 # 검색 키워드 (이 순서가 중복 공고의 '첫 키워드' 우선순위)
-KEYWORDS = ["마케팅", "해외영업", "신입", "공채", "글로벌", "marketing", "MD", "브랜드"]
+KEYWORDS = ["마케팅", "해외영업", "신입", "공채", "글로벌", "marketing", "브랜드", "Brand", "Global"]
  
 # 검색 범위: all(전체) / title(제목) / company(회사명) 등
 SEARCH_FIELD = "all"
@@ -53,10 +53,11 @@ EXCLUDE_TITLE_WORDS = [
     "경력 4년 이상",
     "경력 5년 이상",
     "디자이너",
+    "체험형",
 ]
  
 # 최근 N일 이내 등록만 (1개월 = 31). 최신순 정렬이라 넘어서면 조기 중단.
-RECENT_DAYS = 31
+RECENT_DAYS = 10
  
 MAIN_CSV = "peoplenjob_list.csv"
  
