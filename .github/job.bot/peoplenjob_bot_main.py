@@ -2,45 +2,51 @@
 """
 peoplenjob_bot_main.py
 피플앤잡 수집결과 중 '외국계(외국인투자기업)'로 확인된 공고만 골라내는 스크립트
- 
+
 흐름
   1) peoplenjob_list.csv       : 피플앤잡 봇이 수집한 공고 (입력)
   2) 외국인투자기업정보.xlsx     : 산업통상부 외국인투자기업 목록
                                   A열 기업명(한글) / B열 기업명(영문)  (1행 헤더)
   3) 공고의 기업명을 정규화 매칭 -> 한글명 또는 영문명 중 하나라도 일치하면 '외국계 확인'
   4) peoplenjob_main.csv       : 외국계로 확인된 공고만 저장 (B안)
- 
+
 매칭 규칙 (C안 절충)
   - 정규화: 한글 법인표기(㈜·(주)·주식회사 등) + 영문 접미사(Ltd/Inc/Corp/Co/LLC 등) 제거,
             공백·특수문자 제거, 영문 소문자화.  (단, 'Korea'는 유지 — 외국계 자회사명 핵심)
   - 정규화된 '목록 회사명' 길이 기준:
       * 2글자 이하 -> 완전일치만 (오탐 방지)
       * 3글자 이상 -> 완전일치 또는 '목록명 + 접미사'(목록명으로 시작)면 인정
- 
+
 필요 라이브러리:
     pip install openpyxl xlrd     # xlrd 는 구형 .xls 읽기용 (data.go.kr 파일이 .xls 인 경우)
 """
- 
+
 import os
 import csv
 import re
- 
+
 import openpyxl
- 
+
 # ===========================================================================
 # 설정
 # ===========================================================================
 INPUT_CSV = "peoplenjob_list.csv"            # 피플앤잡 수집 결과 (입력)
 FDI_XLSX = "외국인투자기업정보.xlsx"          # 외국인투자기업 목록
 OUTPUT_CSV = "peoplenjob_main.csv"           # 외국계 확인 공고만 (출력)
- 
+
 CSV_COMPANY_COL = "기업명"                    # 피플앤잡 CSV의 회사명 컬럼
 FDI_COL_KOR = 0                               # A열: 기업명(한글)
 FDI_COL_ENG = 1                               # B열: 기업명(영문)
- 
+
+# ★ 외국인투자기업(FDI) 명부 매칭 사용 여부
+#   False = 매칭 안 함(피플앤잡 공고 전부 통과) ← 표기 불일치 문제 회피, 현재 기본값
+#   True  = 명부와 대조해 외국계 확인된 것만 저장(정확 완전일치)
+#   (나중에 결과가 너무 많으면 True 로 바꾸거나 퍼지매칭으로 교체)
+USE_FDI_MATCH = False
+
 ADD_MATCH_COLUMN = True                       # 끝에 '매칭기업명'(매칭된 공식 외국계명) 추가
 MATCH_COLUMN_NAME = "매칭기업명"
- 
+
 # 정규화 시 제거할 한글 법인/조직 표기
 LEGAL_TOKENS = [
     "주식회사", "유한회사", "유한책임회사", "재단법인", "사단법인",
@@ -52,8 +58,8 @@ ENG_LEGAL_RE = re.compile(
     r"\b(co|company|ltd|limited|inc|incorporated|corp|corporation|llc|llp|"
     r"gmbh|ag|sa|plc|pte|bv|nv|kk|holdings|group)\b"
 )
- 
- 
+
+
 # ===========================================================================
 # 회사명 정규화
 # ===========================================================================
@@ -71,8 +77,8 @@ def normalize(name):
     # 공백 제거
     s = re.sub(r"\s+", "", s)
     return s
- 
- 
+
+
 # ===========================================================================
 # 엑셀 읽기 (.xlsx = openpyxl / 구형 .xls = xlrd 자동 폴백)
 # ===========================================================================
@@ -109,8 +115,8 @@ def read_excel_rows(path):
         eng = vals[FDI_COL_ENG] if len(vals) > FDI_COL_ENG else None
         out.append((kor, eng))
     return out
- 
- 
+
+
 # ===========================================================================
 # 외국인투자기업 목록 로드 (한글 + 영문 둘 다)
 # ===========================================================================
@@ -129,8 +135,8 @@ def load_fdi(path):
                 fdi_map[n] = display
     print(f"[외국계목록] 정규화 항목 {len(fdi_map)}개 로드 (한글+영문)")
     return fdi_map
- 
- 
+
+
 # ===========================================================================
 # 매칭 (C안 절충)
 # ===========================================================================
@@ -144,8 +150,8 @@ def match_company(norm_company, fdi_map):
         if prefix in fdi_map:
             return fdi_map[prefix]
     return None
- 
- 
+
+
 # ===========================================================================
 # 메인
 # ===========================================================================
@@ -153,12 +159,7 @@ def main():
     if not os.path.exists(INPUT_CSV):
         print(f"[오류] 입력 파일 없음: {INPUT_CSV}")
         return
-    if not os.path.exists(FDI_XLSX):
-        print(f"[오류] 외국계목록 파일 없음: {FDI_XLSX}")
-        return
- 
-    fdi_map = load_fdi(FDI_XLSX)
- 
+
     with open(INPUT_CSV, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         fieldnames = list(reader.fieldnames or [])
@@ -166,9 +167,24 @@ def main():
             print(f"[오류] CSV에 '{CSV_COMPANY_COL}' 컬럼이 없습니다. 컬럼: {fieldnames}")
             return
         rows = list(reader)
- 
     print(f"[입력] {INPUT_CSV}: {len(rows)}건")
- 
+
+    # --- 명부 매칭 OFF: 전부 통과 (기본값) ---
+    if not USE_FDI_MATCH:
+        with open(OUTPUT_CSV, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for r in rows:
+                writer.writerow({k: r.get(k, "") for k in fieldnames})
+        print(f"[출력] {OUTPUT_CSV}: 매칭 없이 전부 통과 {len(rows)}건 (USE_FDI_MATCH=False)")
+        return
+
+    # --- 명부 매칭 ON: 외국계 확인된 것만 ---
+    if not os.path.exists(FDI_XLSX):
+        print(f"[오류] 외국계목록 파일 없음: {FDI_XLSX}")
+        return
+    fdi_map = load_fdi(FDI_XLSX)
+
     out_fields = fieldnames + ([MATCH_COLUMN_NAME] if ADD_MATCH_COLUMN else [])
     matched = []
     for row in rows:
@@ -180,19 +196,18 @@ def main():
             if ADD_MATCH_COLUMN:
                 row[MATCH_COLUMN_NAME] = hit
             matched.append(row)
- 
+
     with open(OUTPUT_CSV, "w", encoding="utf-8-sig", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=out_fields)
         writer.writeheader()
         for r in matched:
             writer.writerow({k: r.get(k, "") for k in out_fields})
- 
+
     print(f"[출력] {OUTPUT_CSV}: 외국계 확인 {len(matched)}건 / 전체 {len(rows)}건")
     for r in matched[:10]:
         tag = f"  <- {r.get(MATCH_COLUMN_NAME)}" if ADD_MATCH_COLUMN else ""
         print(f"  · {r.get(CSV_COMPANY_COL)} | {r.get('공고제목', '')}{tag}")
- 
- 
+
+
 if __name__ == "__main__":
     main()
- 
