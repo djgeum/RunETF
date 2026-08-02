@@ -25,6 +25,7 @@ import korea
 import judge as judge_mod
 import state as state_mod
 import report
+import valuation as valuation_mod
 
 
 def run(dry=False):
@@ -48,8 +49,11 @@ def run(dry=False):
     verdict = judge_mod.judge(div, mac, kr, st, kr_changed)
     print(f"    → 판정: {verdict.level} ({verdict.reason})")
 
+    print("  💹 KOSPI 밸류에이션 계산...")
+    val = valuation_mod.calculate()
+
     news = "" if dry else report.fetch_news()
-    msg  = report.build_message(verdict, data, news)
+    msg  = report.build_message(verdict, data, news, val)
 
     if dry:
         print("\n" + "─" * 55)
@@ -60,6 +64,16 @@ def run(dry=False):
 
     report.send_alert(verdict)
     report.send_telegram(msg)
+
+    # KRX 로그인 실패 시 비밀번호 갱신 알림 (별도)
+    if val is not None and val.login_failed:
+        report.send_telegram(
+            "⚠️ KRX 비밀번호 갱신 필요\n\n"
+            "KOSPI 밸류에이션 데이터 수집이 실패했습니다.\n"
+            "1) KRX 사이트에서 비밀번호 변경\n"
+            "2) GitHub Secret KRX_USER_PW 업데이트\n"
+            "(리스크 리포트 나머지는 정상 발송됨)"
+        )
     state_mod.save(st)
     print(f"🎉 완료 {datetime.now().strftime('%H:%M:%S')}")
     return verdict
