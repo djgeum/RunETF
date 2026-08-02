@@ -38,12 +38,14 @@ jobs:
           T3: ${{ secrets.FRED_API_KEY }}
           T4: ${{ secrets.SARAMIN_KEY }}
           T5: ${{ secrets.GEMINI_API_KEY }}
+          T6: ${{ secrets.KRX_USER_ID }}
         run: |
           [ -n "$T1" ] && echo "OK TELEGRAM_ETF_TOKEN"   || echo "MISSING TELEGRAM_ETF_TOKEN"
           [ -n "$T2" ] && echo "OK TELEGRAM_ETF_CHAT_ID" || echo "MISSING TELEGRAM_ETF_CHAT_ID"
           [ -n "$T3" ] && echo "OK FRED_API_KEY"         || echo "MISSING FRED_API_KEY"
           [ -n "$T4" ] && echo "OK SARAMIN_KEY(datago)"  || echo "MISSING SARAMIN_KEY"
           [ -n "$T5" ] && echo "OK GEMINI_API_KEY"       || echo "MISSING GEMINI_API_KEY (뉴스 요약만 생략됨)"
+          [ -n "$T6" ] && echo "OK KRX_USER_ID"          || echo "MISSING KRX_USER_ID (밸류에이션만 생략됨)"
 
       - name: 🚀 리스크 판정 및 발송
         working-directory: stock_risk_monitor
