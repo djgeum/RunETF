@@ -47,6 +47,13 @@ jobs:
           [ -n "$T5" ] && echo "OK GEMINI_API_KEY"       || echo "MISSING GEMINI_API_KEY (뉴스 요약만 생략됨)"
           [ -n "$T6" ] && echo "OK KRX_USER_ID"          || echo "MISSING KRX_USER_ID (밸류에이션만 생략됨)"
 
+      - name: 🔍 성장률 진단
+        working-directory: stock_risk_monitor
+        env:
+          KRX_USER_ID: ${{ secrets.KRX_USER_ID }}
+          KRX_USER_PW: ${{ secrets.KRX_USER_PW }}
+        run: python diagnose_growth.py
+      
       - name: 🚀 리스크 판정 및 발송
         working-directory: stock_risk_monitor
         env:
