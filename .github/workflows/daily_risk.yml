@@ -56,6 +56,8 @@ jobs:
           SARAMIN_KEY:        ${{ secrets.SARAMIN_KEY }}
           GEMINI_API_KEY:     ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL:       "gemini-3.5-flash"
+          KRX_USER_ID:        ${{ secrets.KRX_USER_ID }}
+          KRX_USER_PW:        ${{ secrets.KRX_USER_PW }}
         run: python main.py --now
 
       - name: 💾 상태 파일 커밋
