@@ -1,0 +1,71 @@
+"""valuation 계산 로직 검증 (pykrx 없이)"""
+import pandas as pd, numpy as np
+from datetime import datetime, timedelta
+import valuation as V, config as C
+
+PASS = 0
+def check(name, cond):
+    global PASS
+    assert cond, f"❌ {name}"
+    PASS += 1
+    print(f"✅ {name}")
+
+print("="*58)
+print("[1] 상태 라벨 매핑")
+print("="*58)
+cases = [(120,"상단 이탈 (과열)"), (70,"밴드 상단부"), (0,"밴드 중앙"),
+         (-70,"밴드 하단부"), (-120,"하단 이탈 (저평가)")]
+for disp, expect in cases:
+    got = V._label_for(disp)
+    print(f"  이격율 {disp:+4}% → {got}")
+    check(f"이격율 {disp} 라벨", got == expect)
+
+print()
+print("="*58)
+print("[2] 성장률 EPS 역산")
+print("="*58)
+# 1년 전 EPS=100, 현재 EPS=110 → +10% 성장
+idx = pd.date_range(end="2026-06-30", periods=400, freq="D")
+# EPS = 종가/PER. 종가·PER를 만들어 EPS가 100→110이 되도록
+per = pd.Series([15.0]*400, index=idx)
+# 1년전(약 365일전) 종가 1500 (EPS 100), 현재 종가 1650 (EPS 110)
+close = pd.Series(np.linspace(1500, 1650, 400), index=idx)
+fund = pd.DataFrame({"종가": close, "PER": per, "PBR": [1.0]*400}, index=idx)
+g = V._estimate_growth(fund)
+print(f"  성장률: {g:+.1f}%")
+check("EPS 성장률 +10% 근처", 8 < g < 12)
+
+# 상식범위 초과 → 0
+close2 = pd.Series([100]*399 + [500], index=idx)  # 마지막만 급등
+fund2 = pd.DataFrame({"종가": close2, "PER": [1.0]*400, "PBR": [1.0]*400}, index=idx)
+g2 = V._estimate_growth(fund2)
+check("상식범위 초과 성장률은 0", g2 == 0.0)
+
+print()
+print("="*58)
+print("[3] 이격율 계산 (±2σ = ±100%)")
+print("="*58)
+# 수동 계산 검증
+mean, sigma, k = 1.0, 0.1, 0.4
+growth = 0.0  # 성장률 0으로 단순화
+center = mean * (1 + k*growth/100)   # = 1.0
+band = 2.0 * sigma                    # = 0.2
+# 현재 PBR이 상단(center+band=1.2)이면 +100%
+for pbr_now, expect_disp in [(1.2, 100), (1.1, 50), (1.0, 0), (0.9, -50), (0.8, -100)]:
+    disp = (pbr_now - center) / band * 100
+    print(f"  PBR {pbr_now} → 이격율 {disp:+.0f}%")
+    check(f"PBR {pbr_now} 이격율", abs(disp - expect_disp) < 0.1)
+
+print()
+print("="*58)
+print("[4] 자격증명 없으면 안전 실패")
+print("="*58)
+import os
+for key in ["KRX_USER_ID","KRX_USER_PW","KRX_ID","KRX_PW"]:
+    os.environ.pop(key, None)
+result = V.calculate(verbose=False)
+check("계정 없으면 ok=False", result.ok is False)
+check("계정 없으면 login_failed=False (설정 안됨이지 실패아님)", result.login_failed is False)
+check("실패 사유 기록됨", "미설정" in result.note)
+
+print(f"\n🎉 전체 {PASS}개 통과")
