@@ -107,3 +107,30 @@ RELEASE_KR_REPORTS = 2     # 실물층 미충족 연속 발표 횟수 → 강등
 # 경로
 # ══════════════════════════════════════════════
 STATE_PATH = "data/risk_state.json"
+
+
+# ══════════════════════════════════════════════
+# KOSPI 밸류에이션 (pykrx)
+# ══════════════════════════════════════════════
+KOSPI_INDEX_CODE      = "1001"     # pykrx KOSPI 지수 코드
+PBR_HISTORY_YEARS     = 10         # 역사적 평균·표준편차 계산 기간
+PBR_BAND_SIGMA        = 2.0        # 밴드 경계 (±2σ = 이격율 ±100%)
+PBR_GROWTH_K          = 0.4        # 영업이익 성장률 반영 계수
+
+# 성장률 산출 방식: "eps"(지수 EPS 역산) 또는 "off"(성장률 미반영)
+GROWTH_SOURCE         = "eps"
+# 성장률 상식 범위(±%). 벗어나면 데이터 이상으로 보고 0으로 처리.
+GROWTH_SANITY_LIMIT   = 50.0
+
+# KRX 계정 환경변수 매핑
+#   GitHub Secret 이름 → pykrx가 읽는 이름
+KRX_ID_ENV            = "KRX_USER_ID"   # 이 값을 KRX_ID 로 주입
+KRX_PW_ENV            = "KRX_USER_PW"   # 이 값을 KRX_PW 로 주입
+
+# 밴드 위치별 상태 라벨 기준 (이격율 %)
+VAL_BAND_LABELS = [
+    ( 100,  "상단 이탈 (과열)"),
+    (  50,  "밴드 상단부"),
+    ( -50,  "밴드 중앙"),
+    (-100,  "밴드 하단부"),
+]  # 이 리스트 아래(-100 미만)는 "하단 이탈 (저평가)"
