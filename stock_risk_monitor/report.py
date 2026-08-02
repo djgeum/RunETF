@@ -72,7 +72,7 @@ def _line(s):
     return base
 
 
-def build_message(verdict, data, news="") -> str:
+def build_message(verdict, data, news="", val=None) -> str:
     L = []
     today = datetime.now().strftime("%Y-%m-%d (%a)")
 
@@ -119,7 +119,26 @@ def build_message(verdict, data, news="") -> str:
         L.append(news)
         L.append("")
 
-    L.append(f"수집: {data.get('collected_at','')}  |  FRED·Yahoo·관세청")
+    # ── KOSPI 밸류에이션 (독립 참고 정보) ──
+    if val is not None:
+        L.append("━━ KOSPI 밸류에이션 (참고) ━━")
+        if val.ok:
+            L.append(f"현재 지수: {val.index_now:,.0f} (PBR {val.pbr_now:.2f})")
+            gtxt = f"성장률 {val.growth:+.1f}% 반영" if val.growth else "성장률 미반영"
+            L.append(f"조정 PBR(중심): {val.pbr_center:.2f} · {gtxt}")
+            L.append(f"역사적: 평균 {val.pbr_mean:.2f} ± {val.pbr_sigma:.2f} ({val.years}년)")
+            L.append(f"이격율: {val.dispersion:+.0f}% ({val.label})")
+            if val.index_center:
+                L.append(f"적정 지수: 중심 {val.index_center:,.0f} / "
+                         f"하단 {val.index_lower:,.0f} / 상단 {val.index_upper:,.0f}")
+        elif val.login_failed:
+            L.append("⚠️ KRX 로그인 실패 — 비밀번호 갱신이 필요할 수 있습니다.")
+            L.append("   KRX 사이트에서 비번 변경 후 GitHub Secret(KRX_USER_PW) 업데이트")
+        else:
+            L.append(f"데이터 없음 ({val.note})")
+        L.append("")
+
+    L.append(f"수집: {data.get('collected_at','')}  |  FRED·Yahoo·관세청·KRX")
     return "\n".join(L)
 
 
