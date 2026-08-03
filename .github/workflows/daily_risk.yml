@@ -2,9 +2,9 @@ name: 📊 Daily US Market Risk Monitor
 
 on:
   schedule:
-    # 화~토 한국시간 오전 7시 (UTC 전날 22:00)
+    # 화~토 한국시간 오전 10시 (UTC 01:00)
     # 미국 장 마감(월~금)을 반영하려면 다음날 아침에 발송
-    - cron: '0 22 * * 1-5'
+    - cron: '0 1 * * 2-6'
   workflow_dispatch:
 
 permissions:
