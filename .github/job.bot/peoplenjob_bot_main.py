@@ -44,6 +44,9 @@ FDI_COL_ENG = 1                               # B열: 기업명(영문)
 #   (나중에 결과가 너무 많으면 True 로 바꾸거나 퍼지매칭으로 교체)
 USE_FDI_MATCH = False
 
+# ★ HR컨설팅/서치펌 제외: 이 CSV(첫 열에 회사명)에 있는 회사의 공고는 전부 제외
+HR_EXCLUDE_CSV = "HR.csv"
+
 ADD_MATCH_COLUMN = True                       # 끝에 '매칭기업명'(매칭된 공식 외국계명) 추가
 MATCH_COLUMN_NAME = "매칭기업명"
 
@@ -153,6 +156,29 @@ def match_company(norm_company, fdi_map):
 
 
 # ===========================================================================
+# HR컨설팅/서치펌 제외 목록 로드
+# ===========================================================================
+def load_exclude(path=HR_EXCLUDE_CSV):
+    """HR.csv 첫 열의 회사명 -> 정규화 집합. 이 회사의 공고는 제외한다."""
+    names = set()
+    if not os.path.exists(path):
+        print(f"[HR제외] 파일 없음: {path} (제외 미적용)")
+        return names
+    with open(path, "r", encoding="utf-8-sig", newline="") as f:
+        for row in csv.reader(f):
+            if not row:
+                continue
+            name = (row[0] or "").strip()
+            if not name:
+                continue
+            n = normalize(name)
+            if n and n not in ("회사명", "기업명", "name", "company"):
+                names.add(n)
+    print(f"[HR제외] {len(names)}개 회사 로드")
+    return names
+
+
+# ===========================================================================
 # 메인
 # ===========================================================================
 def main():
@@ -168,6 +194,13 @@ def main():
             return
         rows = list(reader)
     print(f"[입력] {INPUT_CSV}: {len(rows)}건")
+
+    # HR컨설팅/서치펌 제외 (HR.csv 회사명 공고 제거) - 항상 적용
+    exclude = load_exclude(HR_EXCLUDE_CSV)
+    if exclude:
+        before = len(rows)
+        rows = [r for r in rows if normalize(r.get(CSV_COMPANY_COL, "")) not in exclude]
+        print(f"[HR제외] {before}건 → {len(rows)}건 (제외 {before - len(rows)}건)")
 
     # --- 명부 매칭 OFF: 전부 통과 (기본값) ---
     if not USE_FDI_MATCH:
