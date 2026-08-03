@@ -131,6 +131,28 @@ def build_message(verdict, data, news="", val=None) -> str:
             if val.index_center:
                 L.append(f"적정 지수: 중심 {val.index_center:,.0f} / "
                          f"하단 {val.index_lower:,.0f} / 상단 {val.index_upper:,.0f}")
+
+            # ── 성장률 진단 상세 ──
+            d = val.diag or {}
+            if d.get("growth"):
+                g = d["growth"]; p = d["past"]; n = d["now"]
+                L.append("")
+                L.append("─ 성장률 진단 ─")
+                L.append(f"[{d.get('past_date','1년전')}] 지수 {p['idx']:,.0f} · "
+                         f"PER {p['per']:.1f} · PBR {p['pbr']:.2f}")
+                L.append(f"[{d.get('now_date','현재')}] 지수 {n['idx']:,.0f} · "
+                         f"PER {n['per']:.1f} · PBR {n['pbr']:.2f}")
+                L.append(f"지수 {g['idx']:+.1f}% | EPS {g['eps']:+.1f}% | "
+                         f"BPS {g['bps']:+.1f}% | PER {g['per']:+.1f}%")
+                if d.get("capped"):
+                    L.append(f"※ EPS 성장률이 상식범위 초과로 미반영됨")
+                else:
+                    L.append(f"※ EPS 성장률 {g['eps']:+.1f}% 반영 (중심선 상향)")
+                # 해석 한 줄
+                if g["eps"] < g["idx"]:
+                    L.append("해석: 주가가 실적보다 더 오름 → 밸류에이션 확장")
+                else:
+                    L.append("해석: 실적이 주가보다 빠름 → 밸류에이션 매력")
         elif val.login_failed:
             L.append("⚠️ KRX 로그인 실패 — 비밀번호 갱신이 필요할 수 있습니다.")
             L.append("   KRX 사이트에서 비번 변경 후 GitHub Secret(KRX_USER_PW) 업데이트")
