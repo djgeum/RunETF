@@ -48,6 +48,9 @@ class Valuation:
     years:         int   = 0       # 실제 사용 연수
     asof:          str   = ""      # 기준일
 
+    # ── 성장률 진단 상세 (리포트 병기용) ──
+    diag: dict = field(default_factory=dict)
+
 
 # ══════════════════════════════════════════════
 # KRX 로그인 (환경변수 매핑 + 실패 감지)
@@ -79,39 +82,62 @@ def _label_for(dispersion: float) -> str:
 # ══════════════════════════════════════════════
 # 성장률 (지수 EPS 역산)
 # ══════════════════════════════════════════════
-def _estimate_growth(fund_df) -> float:
+def _estimate_growth(fund_df):
     """
-    지수 EPS = 종가 / PER.
-    1년 전 대비 EPS 성장률(%)을 반환. 상식범위 밖이면 0.
+    지수 EPS = 종가/PER, BPS = 종가/PBR.
+    1년 전 대비 EPS 성장률(%)을 반환하고, 진단 상세(dict)도 함께 반환.
+    상식범위 밖이면 성장률은 0으로 처리(진단 dict에는 원값 보존).
+    반환: (growth_used, diag_dict)
     """
+    diag = {}
     if C.GROWTH_SOURCE == "off":
-        return 0.0
+        return 0.0, diag
     try:
-        df = fund_df.dropna(subset=["종가", "PER"])
-        df = df[df["PER"] > 0]
+        df = fund_df.dropna(subset=["종가", "PER", "PBR"])
+        df = df[(df["PER"] > 0) & (df["PBR"] > 0)]
         if len(df) < 2:
-            return 0.0
+            return 0.0, diag
         df = df.copy()
         df["EPS"] = df["종가"] / df["PER"]
+        df["BPS"] = df["종가"] / df["PBR"]
 
-        latest_date = df.index[-1]
-        target_date = latest_date - timedelta(days=365)
-        # 1년 전 시점에 가장 가까운 행
-        past = df[df.index <= target_date]
-        if len(past) == 0:
-            return 0.0
-        eps_now  = float(df["EPS"].iloc[-1])
-        eps_past = float(past["EPS"].iloc[-1])
-        if eps_past <= 0:
-            return 0.0
-        g = (eps_now - eps_past) / eps_past * 100.0
+        now = df.iloc[-1]
+        target = now.name - timedelta(days=365)
+        past_rows = df[df.index <= target]
+        if len(past_rows) == 0:
+            return 0.0, diag
+        past = past_rows.iloc[-1]
+
+        def pct(a, b):
+            return (a - b) / b * 100.0 if b else 0.0
+
+        eps_g = pct(now["EPS"], past["EPS"])
+        bps_g = pct(now["BPS"], past["BPS"])
+        idx_g = pct(now["종가"], past["종가"])
+        per_g = pct(now["PER"], past["PER"])
+
+        diag = {
+            "past_date": str(past.name)[:10],
+            "now_date":  str(now.name)[:10],
+            "past": {"idx": float(past["종가"]), "per": float(past["PER"]),
+                     "pbr": float(past["PBR"]), "eps": float(past["EPS"]),
+                     "bps": float(past["BPS"])},
+            "now":  {"idx": float(now["종가"]), "per": float(now["PER"]),
+                     "pbr": float(now["PBR"]), "eps": float(now["EPS"]),
+                     "bps": float(now["BPS"])},
+            "growth": {"idx": idx_g, "eps": eps_g, "bps": bps_g, "per": per_g},
+        }
+
+        g = eps_g
         if abs(g) > C.GROWTH_SANITY_LIMIT:
-            print(f"    ! 성장률 {g:+.1f}% 상식범위 초과 → 0 처리")
-            return 0.0
-        return g
+            print(f"    ! 성장률 {g:+.1f}% 상식범위(±{C.GROWTH_SANITY_LIMIT:.0f}%) 초과 → 0 처리")
+            diag["capped"] = True
+            return 0.0, diag
+        diag["capped"] = False
+        return g, diag
     except Exception as e:
         print(f"    ! 성장률 계산 실패: {e}")
-        return 0.0
+        return 0.0, diag
 
 
 # ══════════════════════════════════════════════
@@ -127,11 +153,42 @@ def calculate(verbose: bool = True) -> Valuation:
             print(f"    x {v.note}")
         return v
 
-    # ── pykrx import (실패해도 전체는 진행) ──
+    # ── pykrx import ──
+    # import 시점의 자동 로그인이 빈 응답으로 실패할 수 있어,
+    # import 후 명시적으로 재시도한다.
+    import time
     try:
         from pykrx import stock
+        from pykrx.website.comm import auth
     except Exception as e:
         v.note = f"pykrx import 실패: {e}"
+        if verbose:
+            print(f"    x {v.note}")
+        return v
+
+    # ── 명시적 로그인 재시도 (최대 3회) ──
+    uid = os.environ.get("KRX_ID", "")
+    upw = os.environ.get("KRX_PW", "")
+    logged_in = False
+    last_err = ""
+    for attempt in range(1, 4):
+        try:
+            ok = auth.login_krx(uid, upw)
+            if ok:
+                logged_in = True
+                if verbose:
+                    print(f"    · KRX 로그인 성공 (시도 {attempt})")
+                break
+            last_err = "login_krx가 False 반환"
+        except Exception as e:
+            last_err = f"{type(e).__name__}: {e}"
+        if verbose:
+            print(f"    · 로그인 실패 (시도 {attempt}/3): {last_err} — 재시도")
+        time.sleep(5 * attempt)
+
+    if not logged_in:
+        v.login_failed = True
+        v.note = f"KRX 로그인 3회 실패 (비밀번호 갱신/세션 확인 필요): {last_err}"
         if verbose:
             print(f"    x {v.note}")
         return v
@@ -142,25 +199,29 @@ def calculate(verbose: bool = True) -> Valuation:
     e_str = end.strftime("%Y%m%d")
 
     # ── 데이터 조회 ──
-    try:
-        fund = stock.get_index_fundamental_by_date(s_str, e_str, C.KOSPI_INDEX_CODE)
-    except Exception as e:
-        msg = str(e).lower()
-        # 로그인/인증 관련 키워드면 비번 만료 가능성 → 별도 플래그
-        if any(k in msg for k in ("login", "로그인", "auth", "인증", "unauthorized", "password", "비밀번호")):
-            v.login_failed = True
-            v.note = f"KRX 로그인/인증 실패 (비밀번호 갱신 필요 가능): {e}"
-        else:
-            v.note = f"KRX 조회 실패: {e}"
-        if verbose:
-            print(f"    x {v.note}")
-        return v
+    if verbose:
+        print(f"    · 조회 기간 {s_str} ~ {e_str}, 지수 {C.KOSPI_INDEX_CODE}")
 
-    # ── 데이터 유효성 ──
+    # 조회도 빈 응답 대비 3회 재시도
+    fund = None
+    query_err = ""
+    for attempt in range(1, 4):
+        try:
+            fund = stock.get_index_fundamental_by_date(s_str, e_str, C.KOSPI_INDEX_CODE)
+            if fund is not None and len(fund) > 0:
+                break
+            query_err = "빈 데이터"
+        except Exception as qe:
+            query_err = f"{type(qe).__name__}: {qe}"
+            fund = None
+        if verbose:
+            print(f"    · 조회 실패 (시도 {attempt}/3): {query_err} — 재시도")
+        time.sleep(5 * attempt)
+
+    # ── 데이터 유효성 (재시도 후에도 실패한 경우) ──
     if fund is None or len(fund) == 0:
-        # 로그인은 됐지만 빈 데이터 = 회원제 차단 또는 세션 만료 의심
         v.login_failed = True
-        v.note = "KRX 응답이 비어 있음 (세션 만료/차단 의심 → 비밀번호 확인)"
+        v.note = f"KRX 조회 3회 실패 (세션 만료/차단 의심 → 비밀번호 확인): {query_err}"
         if verbose:
             print(f"    x {v.note}")
         return v
@@ -187,7 +248,8 @@ def calculate(verbose: bool = True) -> Valuation:
     years     = round(len(pbr_series) / 252, 1)
 
     # ── 성장률 & 조정 PBR (중심선) ──
-    growth     = _estimate_growth(fund)
+    growth, diag = _estimate_growth(fund)
+    v.diag = diag
     pbr_center = pbr_mean * (1 + C.PBR_GROWTH_K * growth / 100.0)
 
     # ── 밴드 (±2σ) ──
