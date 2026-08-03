@@ -113,14 +113,14 @@ STATE_PATH = "data/risk_state.json"
 # KOSPI 밸류에이션 (pykrx)
 # ══════════════════════════════════════════════
 KOSPI_INDEX_CODE      = "1001"     # pykrx KOSPI 지수 코드
-PBR_HISTORY_YEARS     = 10         # 역사적 평균·표준편차 계산 기간
+PBR_HISTORY_YEARS     = 5          # 역사적 평균·표준편차 계산 기간 (최근 레짐 반영)
 PBR_BAND_SIGMA        = 2.0        # 밴드 경계 (±2σ = 이격율 ±100%)
 PBR_GROWTH_K          = 0.4        # 영업이익 성장률 반영 계수
 
 # 성장률 산출 방식: "eps"(지수 EPS 역산) 또는 "off"(성장률 미반영)
 GROWTH_SOURCE         = "eps"
 # 성장률 상식 범위(±%). 벗어나면 데이터 이상으로 보고 0으로 처리.
-GROWTH_SANITY_LIMIT   = 50.0
+GROWTH_SANITY_LIMIT   = 80.0
 
 # KRX 계정 환경변수 매핑
 #   GitHub Secret 이름 → pykrx가 읽는 이름
