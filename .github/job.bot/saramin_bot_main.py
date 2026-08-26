@@ -45,6 +45,9 @@ CSV_COMPANY_COL = "기업명"                # 사람인 CSV의 회사명 컬럼
 ADD_MATCH_COLUMN = True                   # 끝에 '매칭타겟명' 컬럼 추가할지
 MATCH_COLUMN_NAME = "매칭타겟명"
 
+# ★ HR컨설팅/서치펌 제외: 이 CSV(첫 열에 회사명)에 있는 회사의 공고는 전부 제외
+HR_EXCLUDE_CSV = "HR.csv"
+
 # 정규화 시 제거할 법인/조직 표기
 LEGAL_TOKENS = [
     "주식회사", "유한회사", "유한책임회사", "재단법인", "사단법인",
@@ -96,6 +99,29 @@ def load_targets(path):
 
 
 # ===========================================================================
+# HR컨설팅/서치펌 제외 목록 로드
+# ===========================================================================
+def load_exclude(path=HR_EXCLUDE_CSV):
+    """HR.csv 첫 열의 회사명 -> 정규화 집합. 이 회사의 공고는 제외한다."""
+    names = set()
+    if not os.path.exists(path):
+        print(f"[HR제외] 파일 없음: {path} (제외 미적용)")
+        return names
+    with open(path, "r", encoding="utf-8-sig", newline="") as f:
+        for row in csv.reader(f):
+            if not row:
+                continue
+            name = (row[0] or "").strip()
+            if not name:
+                continue
+            n = normalize(name)
+            if n and n not in ("회사명", "기업명", "name", "company"):
+                names.add(n)
+    print(f"[HR제외] {len(names)}개 회사 로드")
+    return names
+
+
+# ===========================================================================
 # 매칭
 # ===========================================================================
 def match_company(norm_company, target_map):
@@ -140,13 +166,20 @@ def main():
 
     print(f"[입력] {INPUT_CSV}: {len(rows)}건")
 
+    exclude = load_exclude(HR_EXCLUDE_CSV)          # HR/서치펌 제외 목록
+
     out_fields = fieldnames + ([MATCH_COLUMN_NAME] if ADD_MATCH_COLUMN else [])
     matched = []
+    excluded = 0
     for row in rows:
         company = (row.get(CSV_COMPANY_COL) or "").strip()
         if not company:
             continue
-        hit = match_company(normalize(company), target_map)
+        nc = normalize(company)
+        if nc in exclude:                          # HR/서치펌 회사 → 제외
+            excluded += 1
+            continue
+        hit = match_company(nc, target_map)
         if hit:
             if ADD_MATCH_COLUMN:
                 row[MATCH_COLUMN_NAME] = hit
@@ -158,7 +191,7 @@ def main():
         for r in matched:
             writer.writerow({k: r.get(k, "") for k in out_fields})
 
-    print(f"[출력] {OUTPUT_CSV}: 매칭 {len(matched)}건 저장")
+    print(f"[출력] {OUTPUT_CSV}: 매칭 {len(matched)}건 저장 (HR제외 {excluded}건)")
     # 매칭 결과 미리보기 (상위 10건)
     for r in matched[:10]:
         tag = f"  <- {r.get(MATCH_COLUMN_NAME)}" if ADD_MATCH_COLUMN else ""
